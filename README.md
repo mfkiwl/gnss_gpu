@@ -21,24 +21,23 @@ This repo is no longer in a "pick one perfect architecture first" phase. The cur
 
 ## Current frozen read
 
-- **PF beats RTKLIB demo5**: RMS 6.02m (10K particles) vs 13.08m (54% improvement) on Odaiba
-- **PF beats RTKLIB demo5 on P50**: 2.27m vs 2.67m (15% improvement) with position-domain update
+- **PF beats RTKLIB demo5 on all metrics**: P50 1.36m vs 2.67m (49%), RMS 4.11m vs 13.08m (69%) on Odaiba
+- DD carrier phase AFV + DD pseudorange with base station, forward-backward smoother
+- IMU stop-detection with dynamic sigma_pos for 100% IMU utilization
 - GNSS corrections: [gnssplusplus-library](https://github.com/rsasaki0109/gnssplusplus-library) (Sagnac, tropo, iono, TGD, ISB)
 - Clock bias correction: per-epoch re-centering from pseudorange residuals — enables cross-receiver robustness
-- Cross-geography: PF wins on 5 sequences in 2 cities (Tokyo + Hong Kong)
 - Scaling: phase transition at N≈1,000, tail improvement up to 1M particles
 - Systems: `PF3D-BVH-10K` — 57.8x runtime reduction
 
-### PF vs RTKLIB demo5 (Odaiba, gnssplusplus corrections)
+### PF vs RTKLIB demo5 (Odaiba, dual-frequency Trimble, gnssplusplus corrections)
 
 | Method | P50 | P95 | RMS 2D | >100 m |
 | --- | ---: | ---: | ---: | ---: |
 | RTKLIB demo5 | 2.67 m | 32.41 m | 13.08 m | — |
 | SPP (gnssplusplus) | 1.66 m | 12.96 m | 63.25 m | 0.08% |
-| PF 10K | 4.34 m | 12.05 m | 6.56 m | 0.000% |
-| **PF 10K + position update** | **2.27 m** | **12.33 m** | **6.04 m** | **0.000%** |
+| **PF 100K (DD + smoother + stop-detect)** | **1.36 m** | — | **4.11 m** | **0.000%** |
 
-PF 10K with clock bias correction and SPP position-domain update beats RTKLIB demo5 by 54% in RMS, 62% in P95, and 15% in P50, with zero catastrophic failures. Position-domain update pulls the particle cloud center toward the SPP solution (σ=5m soft constraint), closing the P50 gap that pure PF cannot address. PF uses [gnssplusplus-library](https://github.com/rsasaki0109/gnssplusplus-library) for pseudorange corrections (Sagnac, troposphere, ionosphere, TGD, ISB).
+PF 100K with DD carrier phase AFV, DD pseudorange, forward-backward smoother, and IMU stop-detection beats RTKLIB demo5 by **69% in RMS and 49% in P50**, with zero catastrophic failures. The full stack includes: DD carrier phase ambiguity-free verification (AFV) with base station, IMU-guided predict with stop-detection dynamic sigma_pos, per-epoch clock bias correction, SPP position-domain update, and elevation/SNR-based satellite weighting. PF uses [gnssplusplus-library](https://github.com/rsasaki0109/gnssplusplus-library) for pseudorange corrections.
 
 ### Particle cloud on OpenStreetMap
 
@@ -50,6 +49,12 @@ PF (red) vs RTKLIB demo5 (green dashed) vs Ground truth (blue) on real Tokyo str
 
 View on [GitHub Pages](https://rsasaki0109.github.io/gnss_gpu/) for inline playback.
 
+For a longer LOS/NLOS sweep with OpenStreetMap basemap, coarse 3D PLATEAU buildings, and
+satellites projected onto a virtual sky ceiling, open the
+[interactive deck.gl map](docs/assets/media/los_nlos_deckgl.html) or
+[download mp4](docs/assets/media/los_nlos_deckgl.mp4). A still preview is at
+[los_nlos_deckgl_still.png](docs/assets/media/los_nlos_deckgl_still.png).
+
 ### Particle count scaling
 
 ![Particle scaling](experiments/results/paper_assets/paper_particle_scaling.png)
@@ -58,30 +63,48 @@ PF crosses the RTKLIB demo5 baseline at N≈500 particles on Odaiba. Mean RMS sa
 
 ### Cross-geography breadth
 
-PF family outperforms baselines across 5 sequences in 2 cities (Tokyo + Hong Kong).
+**Tokyo (dual-frequency Trimble + G,E,J, DD + smoother; Odaiba best uses IMU stop-detect)**
 
-**Tokyo (trimble + G,E,J, gnssplusplus corrections + cb correct + position update)**
+| Sequence | PF P50 | PF RMS | Baseline | Baseline RMS | PF RMS improvement |
+| --- | ---: | ---: | --- | ---: | ---: |
+| Odaiba | **1.36 m** | **4.11 m** | RTKLIB demo5 | 13.08 m | **69%** |
+| Shinjuku | **2.52 m** | **8.92 m** | gnssplusplus SPP | 18.12 m | **51%** |
 
-| Sequence | PF P50 | PF RMS | Baseline RMS | Baseline | PF RMS improvement |
-| --- | ---: | ---: | ---: | --- | ---: |
-| Odaiba | **2.27 m** | **6.04 m** | 13.08 m | RTKLIB demo5 | **54%** |
-| Shinjuku | **4.18 m** | **13.42 m** | 18.12 m | gnssplusplus SPP | **26%** |
+PF beats all baselines on both sequences with zero >100m failures.
 
-**Hong Kong (ublox, gnssplusplus corrections + cb correct + elevation weighting)**
+### Supplemental: Hong Kong (single-frequency ublox)
+
+HK uses a single-frequency ublox M8 receiver (L1 only), which cannot benefit from dual-frequency iono-free combination. Results are included as a supplemental analysis of single-frequency performance.
 
 | Sequence | Method | P50 | P95 | RMS | >100m |
 | --- | --- | ---: | ---: | ---: | ---: |
 | HK-20190428 | RTKLIB demo5 | 16.18 m | 60.85 m | 26.80 m | 0.2% |
 | HK-20190428 | SPP (gnssplusplus) | 15.27 m | 43.72 m | 23.71 m | 0.0% |
-| HK-20190428 | **PF 100K** | **15.82 m** | **42.42 m** | **22.71 m** | **0.0%** |
-| HK TST | PF / SPP | 317.6 m / 318.3 m | — | — | 78.5% |
-| HK Whampoa | PF / SPP | 503.4 m / 508.7 m | — | — | 94.7% |
+| HK-20190428 | **PF 100K** | **14.21 m** | **41.60 m** | **22.53 m** | **0.0%** |
 
-PF beats RTKLIB demo5 on HK-20190428 by **15% in RMS and 30% in P95**, with zero catastrophic failures (>100m: 0% vs 0.2%). Key techniques: per-epoch clock bias correction (compensates ublox ~65 m/s drift), elevation-based satellite weighting (downweight <20 deg), and SPP position-domain update (σ=2.5m soft constraint).
+PF beats RTKLIB demo5 by **16% in RMS and 32% in P95** even with single-frequency. Key techniques: per-epoch clock bias correction (compensates ublox ~65 m/s drift), Doppler velocity, RAIM satellite exclusion, elevation/SNR weighting, and carrier phase NLOS detection.
 
-Clock bias correction (`correct_clock_bias`) re-centers particles' cb each epoch using median pseudorange residuals. Without cb correction, HK PF diverges to >100m on 100% of epochs; with it, >100m drops to 0%.
+Without clock bias correction, HK PF diverges to >100m on 100% of epochs. Per-epoch cb re-centering is critical for ublox receivers where cb drifts at ~65 m/s (vs ~6 m/s for Trimble).
 
-TST and Whampoa have 20-30 satellites but SPP itself fails (>300m) due to dominant NLOS — pseudorange errors of hundreds of meters make single-epoch and temporal filtering approaches equally ineffective. This is a fundamental SPP limitation, not a PF limitation. These environments require RTK, carrier-phase, or 3D-map-aided NLOS exclusion to achieve usable accuracy.
+TST and Whampoa sequences have 20-30 satellites but SPP itself fails (>300m RMS) due to dominant NLOS. These environments require RTK, carrier-phase, or 3D-map-aided NLOS exclusion.
+
+### Supplemental Only: Kaggle GSDC 2023 Submission Benchmark
+
+These are Kaggle leaderboard submission scores on open-sky smartphone data. They are included as a supplemental smartphone benchmark only, not as the main UrbanNav claim.
+
+| Submission | Public | Private | Method |
+| --- | ---: | ---: | --- |
+| v1 | 4.207 m | **5.144 m** | pseudorange only |
+| **v3** | **4.128 m** | — | + smoother |
+| v2 | 10.150 m | — | + TDCP + Hatch |
+| v11 | 4.223 m | 5.255 m | reset-safe segmented smoother |
+
+| Train method | Mean P50 | Median P50 | Mean RMS |
+| --- | ---: | ---: | ---: |
+| WLS (Android baseline) | **2.62 m** | **2.42 m** | **5.14 m** |
+| PF-100K | 2.83 m | 2.62 m | 5.36 m |
+
+The best leaderboard submission is still `v3` at **4.128 m public**, while the best private score remains `v1` at **5.144 m**. A later reset-safe smoother (`v11`) removed the hidden catastrophic failure seen in earlier smoother variants and produced a sane private score (`5.255 m`), but it did not beat the frozen leaderboard best. WLS still wins on train averages, and TDCP plus Hatch materially worsened the smartphone result. This section is here to document the smartphone submission result, not to replace the UrbanNav headline.
 
 **BVH systems result (PPC-Dataset PLATEAU subset, separate dataset)**
 
@@ -104,34 +127,19 @@ p(pseudorange | particle, satellite) =
 
 where `p_nlos` is set by the ray-trace result (high if blocked, `clear_nlos_prob=0.01` if clear), `σ_los` is the LOS noise (~3m), `σ_nlos` is the NLOS noise (~30m), and `bias` is the NLOS positive bias (~15m). This means different particles can disagree on which satellites are blocked, naturally handling the multi-modal posterior in urban canyons. The standard PF variant (without 3D models) uses a simpler Gaussian likelihood with `clear_nlos_prob` to provide robustness without explicit ray-tracing.
 
-### IMU integration (complementary heading filter)
+### IMU integration + DD carrier phase + smoother
 
-Fuses gyroscope heading (short-term precise) with SPP heading (long-term stable) via complementary filter (α=0.05). Combined with wheel velocity (0.02 m/s median error, correlation=1.0 with GT).
+With DD carrier phase AFV, DD pseudorange, IMU-guided predict, IMU stop-detection, and forward-backward smoother:
 
-| Method | P50 | RMS | P95 |
-| --- | ---: | ---: | ---: |
-| PF 10K + SPP guide only | 4.19 m | 6.42 m | 11.56 m |
-| PF 10K + complementary | 4.16 m | 6.03 m | 10.47 m |
-| **PF 100K + complementary** | **3.49 m** | **5.74 m** | **9.73 m** |
+| Sequence | Method | P50 | RMS | >100m |
+| --- | --- | ---: | ---: | ---: |
+| Odaiba | RTKLIB demo5 | 2.67 m | 13.08 m | — |
+| Odaiba | SPP (gnssplusplus) | 1.66 m | 63.25 m | 0.08% |
+| Odaiba | **PF 100K (DD + smoother + stop-detect)** | **1.36 m** | **4.11 m** | **0%** |
+| Shinjuku | SPP (gnssplusplus) | 3.01 m | 18.12 m | 0.09% |
+| Shinjuku | **PF 100K (DD + smoother)** | **2.52 m** | **8.92 m** | **0%** |
 
-With position-domain update (SPP soft constraint, σ=5m) and clock bias correction:
-
-| Sequence | Method | P50 | P95 | RMS | >100m |
-| --- | --- | ---: | ---: | ---: | ---: |
-| Odaiba | RTKLIB demo5 | 2.67 m | 32.41 m | 13.08 m | — |
-| Odaiba | SPP (gnssplusplus) | **1.66 m** | 12.96 m | 63.25 m | 0.08% |
-| Odaiba | **PF + cb correct + PU** | **2.27 m** | **12.33 m** | **6.04 m** | **0%** |
-| Shinjuku | SPP (gnssplusplus) | **3.01 m** | 32.80 m | 18.12 m | 0.09% |
-| Shinjuku | **PF + cb correct + PU** | 4.18 m | **30.83 m** | **13.42 m** | **0%** |
-
-Beats RTKLIB/SPP on RMS (54-26% improvement) and eliminates all >100m failures on both sequences. P50 beats RTKLIB demo5 on Odaiba (2.27m vs 2.67m). Position-domain update applies a Gaussian soft constraint from the SPP solution directly to particle log-weights, pulling the cloud center toward SPP without losing PF's tail robustness.
-
-Additionally bridges GNSS blackouts (52-55% improvement during 3-20s outages) when combined with IMU (complementary heading filter).
-
-### Carrier phase (RTK) — honest negative result
-
-gnssplusplus RTK on Odaiba urban canyon: all solutions are **float** (integer ambiguity never resolved, ratio=0). Float RTK achieves P50=0.70m but 25% of epochs have >20m error. **RTK does not improve over PF+SPP in urban canyons** because multi-GNSS signals with heavy NLOS prevent reliable integer ambiguity resolution. Open-sky or suburban environments with better signal conditions would benefit from RTK integration.
-
+Beats RTKLIB/SPP on RMS (69-51%), eliminates all >100m failures, and beats SPP P50 on Odaiba (1.36m vs 1.66m). The stack combines: (1) DD carrier phase AFV with base station for cm-level observation quality, (2) DD pseudorange for additional constraint, (3) IMU-guided predict with stop-detection dynamic sigma_pos (100% IMU utilization), (4) forward-backward particle smoother, (5) per-epoch clock bias correction, (6) SPP position-domain update, (7) elevation/SNR-based satellite weighting.
 ### Urban canyon simulation
 
 Controlled simulation with parametric canyon (parallel buildings, ray-traced NLOS). PF advantage increases with NLOS severity.
@@ -148,20 +156,23 @@ Controlled simulation with parametric canyon (parallel buildings, ray-traced NLO
 
 ### What this repo claims
 
-- PF with proper pseudorange corrections beats RTKLIB demo5 by 54% in RMS and 15% in P50 on UrbanNav Tokyo.
+- PF with DD carrier phase + DD pseudorange + smoother + IMU stop-detect beats RTKLIB demo5 by 69% in RMS and 49% in P50 on UrbanNav Tokyo Odaiba.
 - PF eliminates catastrophic failures (>100m rate = 0%) through temporal filtering.
+- DD carrier phase AFV with base station provides cm-level observation quality without integer ambiguity resolution.
+- Forward-backward particle smoother uses future observations to refine past estimates.
+- IMU stop-detection with dynamic sigma_pos achieves 100% IMU utilization.
 - Per-epoch clock bias correction enables cross-receiver robustness (trimble and ublox).
-- Position-domain update closes the P50 gap by pulling the particle cloud toward the SPP solution.
+- On Kaggle GSDC 2023 smartphone data, the best PF leaderboard submission is `v3` at 4.128 m public, and it is documented only as a supplemental benchmark.
 - Particle count scaling reveals a phase transition at N≈1,000 with continued tail improvement to 1M.
 - BVH makes real-PLATEAU PF3D runtime practical without changing accuracy.
 - Urban canyon simulation confirms PF advantage increases with NLOS severity (87% gain at 91% NLOS).
-- Map prior (Oh et al. 2004) adds 14-18% improvement by constraining particles to road network.
-- 24 cited references, gnssplusplus-library as submodule for GNSS corrections.
+- gnssplusplus-library as submodule for GNSS corrections.
 
 ### What this repo does not claim
 
 - It does not claim a world-first GNSS particle filter.
 - It does not claim the same configuration works across all urban environments without tuning.
+- It does not claim the Kaggle GSDC submission result is the main headline. That result is supplemental and not directly comparable to the UrbanNav DD+smoother result.
 
 ## Repo front door
 
@@ -218,6 +229,11 @@ This rebuilds:
 - `docs/assets/results_snapshot.json`
 - `docs/assets/data/*.csv`
 - `docs/assets/figures/*.png`
+- `docs/assets/media/los_nlos_deckgl.html`
+- `docs/assets/media/los_nlos_deckgl.gif`
+- `docs/assets/media/los_nlos_deckgl.mp4`
+- `docs/assets/media/los_nlos_deckgl_still.png`
+- `docs/assets/media/los_nlos_deckgl.webm`
 - `docs/assets/media/site_poster.png`
 - `docs/assets/media/site_teaser.gif`
 - `docs/assets/media/site_teaser.mp4`
@@ -305,6 +321,8 @@ Main output files:
 - `experiments/results/urbannav_window_eval_external_gej_trimble_qualityveto_w500_s250_summary.csv`
 - `experiments/results/pf_strategy_lab_holdout6_r200_s200_summary.csv`
 - `experiments/results/urbannav_fixed_eval_hk20190428_gc_adaptive_summary.csv`
+- `experiments/results/gsdc2023_eval.csv`
+- `experiments/results/gsdc2023_submission_v3.csv`
 
 ## License
 

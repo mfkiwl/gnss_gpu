@@ -26,6 +26,7 @@ struct PFDeviceState {
     // For systematic resampling
     double* d_weights_norm;  // [N] normalized weights
     double* d_cdf;           // [N] CDF
+    int* d_resample_ancestor;  // [N] last systematic resample: out[j]=source index i
 
     // Velocity buffer (3 doubles, persistent)
     double* d_vel;
@@ -41,6 +42,8 @@ struct PFDeviceState {
     // Pinned host memory for async H2D transfers
     double* h_sat_pinned;    // pinned memory for satellite data
     double* h_result_pinned; // pinned memory for estimate result (4 doubles)
+    // Scratch for ESS / estimate / systematic-resample CPU reductions (6 * grid doubles)
+    double* h_reduction_pinned;
     int pinned_capacity;     // max satellites supported without realloc
 
     int n_particles;
@@ -76,6 +79,38 @@ void pf_device_weight(PFDeviceState* state,
     const double* weights_sat,
     int n_sat, double sigma_pr, double nu = 0.0);
 
+// Weight update using GMM likelihood (LOS + NLOS mixture components)
+// w_los: weight of LOS component (e.g. 0.7), sigma_pr is sigma_los
+// mu_nlos: mean bias of NLOS component [m], sigma_nlos: std of NLOS component [m]
+void pf_device_weight_gmm(PFDeviceState* state,
+    const double* sat_ecef, const double* pseudoranges,
+    const double* weights_sat,
+    int n_sat, double sigma_pr,
+    double w_los = 0.7, double mu_nlos = 15.0, double sigma_nlos = 30.0);
+
+// Weight update using carrier phase AFV (Ambiguity Function Value) likelihood.
+// Uses fractional cycle residuals — no integer ambiguity resolution needed.
+// Call AFTER pf_device_weight (pseudorange) for the MUPF algorithm.
+// carrier_phase is in cycles, wavelength in meters, sigma_cycles in cycles.
+void pf_device_weight_carrier_afv(PFDeviceState* state,
+    const double* sat_ecef, const double* carrier_phase,
+    const double* weights_sat,
+    int n_sat, double wavelength = 0.190293673, double sigma_cycles = 0.05);
+
+// Weight update using DD carrier phase AFV (Double-Differenced).
+// Eliminates receiver clock bias; uses satellite differencing geometry.
+// sat_ecef_k: [n_dd, 3] non-ref satellite positions
+// ref_ecef: [3] reference satellite position
+// dd_carrier: [n_dd] DD carrier phase observations in cycles
+// base_range_k: [n_dd] base-to-sat_k ranges [m]
+// base_range_ref: base-to-ref range [m]
+// weights_dd: [n_dd] per-DD-pair weights
+void pf_device_weight_dd_carrier_afv(PFDeviceState* state,
+    const double* sat_ecef_k, const double* ref_ecef,
+    const double* dd_carrier, const double* base_range_k,
+    double base_range_ref, const double* weights_dd,
+    int n_dd, double wavelength = 0.190293673, double sigma_cycles = 0.05);
+
 // Position-domain update - apply soft constraint from external position estimate
 void pf_device_position_update(PFDeviceState* state,
     double ref_x, double ref_y, double ref_z, double sigma_pos);
@@ -95,6 +130,13 @@ void pf_device_estimate(const PFDeviceState* state, double* result);
 
 // Copy particles to host for visualization (only when needed)
 void pf_device_get_particles(const PFDeviceState* state, double* output);
+
+// Copy log-weights to host (for FFBSi / diagnostics). Synchronizes the stream.
+void pf_device_get_log_weights(const PFDeviceState* state, double* output);
+
+// Copy last systematic-resampling ancestor indices to host (out[j] = source idx).
+// Only valid after pf_device_resample_systematic; synchronizes the stream.
+void pf_device_get_resample_ancestors(const PFDeviceState* state, int* output);
 
 // Explicit synchronization - wait for all stream operations to complete
 void pf_device_sync(PFDeviceState* state);

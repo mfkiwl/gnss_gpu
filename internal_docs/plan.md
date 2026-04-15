@@ -1,591 +1,387 @@
-# gnss_gpu Claude 引き継ぎメモ
+# gnss_gpu 引き継ぎメモ
 
-**最終更新**: 2026-04-04 JST  
-**現在の HEAD**: `41ccb98` (`refine teaser media layout`)  
-**ブランチ状態**: `main`, worktree clean  
-**現フェーズ**: 実装・探索フェーズ凍結済み。いまは artifact / README / GitHub Pages / 原稿パッケージングの段階。  
-
----
-
-## 0. 最初に読むもの
-
-1. `README.md`
-2. `docs/experiments.md`
-3. `docs/decisions.md`
-4. `docs/interfaces.md`
-5. `docs/paper_draft_2026-04-01.md`
-6. `experiments/results/paper_assets/paper_main_table.md`
-7. `docs/assets/results_snapshot.json`
-
-この `docs/plan.md` は「何が frozen で、何が exploratory で、Claude が次にどこを触るべきか」を 1 本で分かるように書いている。
+**最終更新**: 2026-04-14 JST
+**現在の HEAD**: `ca73867` (`feature/carrier-phase-imu`)
+**ブランチ**: `feature/carrier-phase-imu` (PR #4 open, CI 全 pass)
+**作業ツリー**: dirty (DD pseudorange/carrier/quality/stop-detect/GSDC 評価が積み上がっている)
+**FGO**: 使わない。PF の枠内で詰める。
+**PR #4**: 許可があるまで merge しない。
 
 ---
 
-## 1. いまの結論を先に書く
+## 0. 最初に読む順
 
-### 1.1 frozen mainline
-
-- **mainline method は `PF+RobustClear-10K`**
-- これは **UrbanNav external** の full-run で一番安全に勝っている構成
-- README, GitHub Pages, paper assets, snapshot JSON はこの前提に揃っている
-
-### 1.2 exploratory / supplemental
-
-- **PPC gate family** は残しているが exploratory
-- **`entry_veto_negative_exit_rescue_branch_aware_hysteresis_quality_veto_regime_gate`** は PPC holdout で surviving gate だが gain は小さい
-- **`PF+AdaptiveGuide-10K`** と **`PF+EKFRescue-10K`** は supplemental
-- **explicit 3D PF / PF3D-BVH** は accuracy の headline ではなく **systems result**
-
-### 1.3 safe headline
-
-いま安全に言えるのは次の 3 本だけ。
-
-1. **UrbanNav external では multi-GNSS PF path が EKF を明確に上回る**
-2. **Hong Kong 3シーケンスでも PF+AdaptiveGuide が EKF を上回る（cross-geography breadth）**
-3. **BVH は PF3D の runtime を大幅に削る**
-4. **PPC では holdout-surviving な小さい gate gain があるが、headline ではない**
-
-### 1.4 unsafe headline
-
-以下は今も危ない。
-
-- `world first`
-- `3D map aided PF improves real-data accuracy` を主張の中心に置くこと
-- `guaranteed strong accept`
-- `geography-independent general win`
-- `adaptive / rescue` を mainline に昇格させること
+1. 本ファイルの **§1 現在の要約** と **§10 次にやるべきこと**
+2. `internal_docs/pf_smoother_api.md`
+3. `experiments/exp_pf_smoother_eval.py` (UrbanNav 主戦場)
+4. `experiments/exp_gsdc2023_pf.py` (Kaggle GSDC 評価)
+5. `experiments/exp_gsdc2023_submission.py` (Kaggle submission 生成)
+6. `tests/test_exp_pf_smoother_eval.py` (18 tests, 全 pass)
 
 ---
 
-## 2. 現在の数値
+## 1. 現在の要約
 
-### 2.1 paper main table の固定値
+### 1.1 headline numbers
 
-出典: `experiments/results/paper_assets/paper_main_table.md`
+#### UrbanNav Tokyo (dual-frequency Trimble, 100K particles, smoother)
 
-| section | method | RMS 2D [m] | P95 [m] | >100m [%] | >500m [%] | time [ms/epoch] | note |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| PPC holdout | Safe baseline | 66.92 | 81.69 | 5.83 | 0.0 |  | `always_robust` |
-| PPC holdout | Exploratory gate | 65.54 | 81.22 | 5.83 | 0.0 |  | `entry_veto_negative_exit_rescue...` |
-| UrbanNav external | EKF | 93.25 | 178.18 | 16.29 | 0.161 | 0.031 | `trimble + G,E,J` |
-| UrbanNav external | PF-10K | 67.61 | 101.46 | 5.44 | 0.0 | 1.367 | `trimble + G,E,J` |
-| UrbanNav external | PF+RobustClear-10K | **66.60** | **98.53** | **4.80** | **0.0** | 1.401 | frozen mainline |
-| UrbanNav external | WLS+QualityVeto | 2933.77 | 175.38 | 10.13 | 2.552 | 0.195 | promoted core hook |
-| BVH systems | PF3D-10K | 55.50 | 58.39 | 0.0 | 0.0 | 1028.29 | real PLATEAU subset |
-| BVH systems | PF3D-BVH-10K | 55.50 | 58.39 | 0.0 | 0.0 | **17.78** | **57.8x faster** |
+| 場所 | PF P50 | PF RMS | Baseline | Baseline RMS | PF RMS 改善 |
+|---|---:|---:|---|---:|---:|
+| **Odaiba** | **1.36m** | **4.11m** | RTKLIB demo5 | 13.08m | **69%** |
+| **Shinjuku** | **2.52m** | **8.92m** | SPP | 18.12m | **51%** |
 
-### 2.2 UrbanNav external の補強
+#### UrbanNav HK (supplemental, single-frequency ublox)
 
-出典:
+| Method | P50 | RMS | >100m |
+|---|---:|---:|---:|
+| RTKLIB demo5 | 16.18m | 26.80m | 0.2% |
+| **PF 100K** | **14.21m** | **22.53m** | **0%** |
 
-- `experiments/results/urbannav_fixed_eval_external_gej_trimble_qualityveto_summary.csv`
-- `experiments/results/urbannav_window_eval_external_gej_trimble_qualityveto_w500_s250_summary.csv`
+#### Kaggle GSDC 2023 (supplemental, smartphone)
 
-重要なのは run 平均 2 本だけではないこと。
+| Version | 手法 | Public Score |
+|---|---|---:|
+| **v3 (best)** | PF + smoother | **4.128m** |
+| v1 | pseudorange only | 4.207m |
+| v2 | + TDCP + Hatch | 10.150m (悪化) |
+| 1st place (参考) | FGO+TDCP+DGNSS | 0.789m |
 
-- fixed full-run average:
-  - `EKF = 93.25 / 178.18 / 16.29% / 0.161%`
-  - `PF-10K = 67.61 / 101.46 / 5.44% / 0.000%`
-  - `PF+RobustClear-10K = 66.60 / 98.53 / 4.80% / 0.000%`
-- fixed window evaluation (`500 epoch / 250 stride`):
-  - `PF+RobustClear-10K` は `EKF` に対して
-    - `RMS 90/127 win`
-    - `P95 102/127 win`
-    - `>100m 89/127 win`
-    - `>500m 127/127 <=`
+### 1.2 PF が勝つ環境 vs 負ける環境
 
-つまり Tokyo external は「たまたま Odaiba / Shinjuku の run 平均で勝った」だけではない。
+| 環境 | PF vs Baseline | 理由 |
+|---|---|---|
+| **Urban canyon (UrbanNav)** | **PF 圧勝** | NLOS outlier を temporal filtering で排除 |
+| Open-sky smartphone (GSDC) | WLS が勝つ | NLOS 少ない → 時間平滑化の恩恵なし |
+| Extreme urban (HK TST/Whampoa) | 両方壊滅 | SPP 自体が >300m → PF でも救えない |
 
-### 2.3 PPC holdout の位置づけ
+### 1.3 1m 切りの状況
 
-出典:
+DD+IMU の両方が効く 7099 epoch (58%) は **P50=1.107m** で 1m に近い。
+全体 P50=1.36m を引き上げているのは:
+- DD pairs 少ない区間 (epoch 2445-4890, base station coverage の穴)
+- DD pairs≥17 のエポックは **P50=0.899m (1m 切り達成)**
 
-- `experiments/results/pf_strategy_lab_positive6_summary.csv`
-- `experiments/results/pf_strategy_lab_holdout6_r200_s200_summary.csv`
-- `experiments/results/pf_strategy_family_cv_positive6_holdout6_family_best.csv`
-
-PPC では gate family をかなり掘ったが、最終的な結論はこう。
-
-- tuned split では gain がある
-- holdout でも一応 survival する
-- ただし gain は **小さい**
-- したがって paper / README / Pages の main headline にしてはいけない
-
-安全な表現は「design-space / ablation / experiment-first process の証拠」まで。
-
-### 2.4 Hong Kong の位置づけ
-
-出典:
-
-- `experiments/results/urbannav_fixed_eval_hk20190428_gc_adaptive_summary.csv`
-- `experiments/results/urbannav_fixed_eval_hk_tst_gc_ublox_summary.csv`
-- `experiments/results/urbannav_fixed_eval_hk_whampoa_gc_ublox_summary.csv`
-
-Hong Kong は **supplemental positive result** に昇格した。3シーケンス全てで `PF+AdaptiveGuide-10K` が `EKF` を上回る:
-
-- HK-20190428 (GC): 66.85 m vs 69.49 m (EKF)
-- HK TST (GC): 152.37 m vs 301.04 m (EKF) — 49% 改善
-- HK Whampoa (GC): 413.68 m vs 463.09 m (EKF) — 11% 改善
-
-ただし frozen mainline `PF+RobustClear-10K` は HK multi-GNSS で崩壊する。
-勝つのは supplemental variant (`PF+AdaptiveGuide-10K`)。
-
-paper での位置づけ: cross-geography breadth evidence として使う。
-headline claim にはしない（winning method が mainline と異なるため）。
+**構造的限界**: base station coverage 改善 or TDCP predict 改善が必要だが、どちらもデータ/前処理の制約。
 
 ---
 
-## 3. method freeze
+## 2. 実装済み技術スタック (全体)
 
-### 3.1 mainline
+### 2.1 CUDA カーネル
 
-**`PF+RobustClear-10K`**
+| カーネル | ファイル | 機能 |
+|---|---|---|
+| pf_device_position_update | pf_device.cu | SPP soft constraint |
+| pf_device_shift_clock_bias | pf_device.cu | per-epoch cb re-centering |
+| DD pseudorange weight | pf_device.cu | base station DD PR update |
+| DD carrier AFV weight | pf_device.cu | base station DD carrier update |
+| spread stat | pf_device.cu | particle spread 計測 |
 
-理由:
+### 2.2 Python API (particle_filter_device.py)
 
-- UrbanNav external full-run の frozen winner
-- `PF-10K` との差は大きくはないが、tail 指標まで含めて最も安定
-- README / Pages / paper assets をこの method に揃え済み
+| メソッド | 機能 |
+|---|---|
+| position_update() | SPP position-domain soft constraint |
+| correct_clock_bias() | per-epoch cb correction |
+| shift_clock_bias() | 低レベル cb shift |
+| update_carrier_afv() | DD carrier AFV weight update |
+| enable_smoothing() / store_epoch() / smooth() | forward-backward smoother |
 
-### 3.2 exploratory gate
+### 2.3 DD (Double Difference) スタック
 
-**`entry_veto_negative_exit_rescue_branch_aware_hysteresis_quality_veto_regime_gate`**
+| モジュール | ファイル | 機能 |
+|---|---|---|
+| DD pseudorange | dd_pseudorange.py | base station DD PR 計算 |
+| DD carrier AFV | dd_carrier.py | base station DD carrier phase |
+| DD quality gate | dd_quality.py | adaptive threshold + ESS/spread scaling |
 
-理由:
+### 2.4 gnssplusplus API 拡張
 
-- PPC holdout で生き残る non-trivial gate
-- ただし improvement は小さい
-- mainline ではなく appendix / lab result 扱いが妥当
+CorrectedMeasurement に追加: prn, carrier_phase, doppler, snr, satellite_velocity, clock_drift
 
-### 3.3 promoted core hook
+### 2.5 観測スタック効果 (Odaiba)
 
-**`WLS+QualityVeto`**
-
-場所:
-
-- `python/gnss_gpu/multi_gnss_quality.py`
-- `experiments/exp_urbannav_baseline.py`
-- `experiments/exp_urbannav_fixed_eval.py`
-
-意味:
-
-- multi-GNSS stabilization policy を reusable hook として core 側へ押し上げた
-- ただし best external method ではない
-
-### 3.4 supplemental variants
-
-- `PF+AdaptiveGuide-10K`
-- `PF+EKFRescue-10K`
-- `PF+RobustClear+EKFRescue-10K`
-
-役割:
-
-- Hong Kong や sparse regime の mitigation
-- cross-geometry weakness の応急処置
-- Tokyo full-run frozen mainline の置換ではない
-
-### 3.5 3D path
-
-- `PF3D-BVH` は **systems contribution**
-- explicit blocked/NLOS likelihood を headline accuracy result にしないこと
-
-理由:
-
-- real PLATEAU + NLOS で explicit 3D likelihood は安定勝ちしていない
-- hard / mixture / gate を掘ったが、mainline にはなっていない
-- 一方で runtime gain は非常に強い
+| 手法 | 効果 | 状態 |
+|---|---|---|
+| DD carrier AFV | P50 1.65→1.38m | 実装済み、主力 |
+| DD pseudorange | RMS 改善 | 実装済み |
+| Forward-backward smoother | RMS 5.04→4.81m | 実装済み |
+| IMU stop-detection | P50 1.38→1.36m, RMS 5.08→4.11m | 実装済み、現best |
+| cb_correct | HK で必須 (168→22m) | 実装済み |
+| position_update | P50 4.5→1.65m | 実装済み |
+| Doppler velocity | P50 -0.05m | 実装済み |
+| Elevation/SNR weighting | P95 改善 | 実装済み |
+| RAIM satellite exclusion | P95 改善 (HK) | 実装済み |
 
 ---
 
-## 4. ここまでに試して、主役から降ろしたもの
+## 3. 正直なネガティブ結果 (全部)
 
-### 4.1 PF strategy zoo
-
-`experiments/pf_strategy_lab/` 以下でかなり多くの gate family を試した。
-
-例:
-
-- `always_robust`
-- `always_blocked`
-- `disagreement_gate`
-- `rule_chain_gate`
-- `weighted_score_gate`
-- `clock_veto_gate`
-- `dual_mode_regime_gate`
-- `quality_veto_regime_gate`
-- `hysteresis_quality_veto_regime_gate`
-- `branch_aware_hysteresis_quality_veto_regime_gate`
-- `rescue_branch_aware_hysteresis_quality_veto_regime_gate`
-- `entry_veto_negative_exit_rescue_branch_aware_hysteresis_quality_veto_regime_gate`
-
-結論:
-
-- best surviving family は最後の `entry_veto_negative_exit...`
-- それでも gain は small
-- これ以上 strategy family を増やすのは return が薄い
-
-### 4.2 adaptive guide
-
-`PF+AdaptiveGuide-10K` は 3-run mixed regime では良く見えたが、full Tokyo external では frozen mainline を超えなかった。
-
-出典:
-
-- `experiments/results/urbannav_fixed_eval_external_gej_trimble_adaptive_3k_summary.csv`
-- `experiments/results/urbannav_fixed_eval_external_gej_trimble_adaptive_full_summary.csv`
-
-結論:
-
-- supplemental に留める
-- README / Pages / paper main table を差し替えない
-
-### 4.3 rescue variants
-
-Hong Kong では効くが Odaiba で悪化する。
-
-結論:
-
-- safety option としては有用
-- mainline には昇格させない
-
-### 4.4 3D map accuracy story
-
-real PLATEAU path は integration / systems 的には重要だが、accuracy headline には使わない。
-
-結論:
-
-- runtime figure は main figure で良い
-- accuracy 主張は `PF+RobustClear-10K` に寄せる
+| 手法 | データ | 結果 | 原因 |
+|---|---|---|---|
+| Student's t likelihood | 全データ | 悪化 | urban canyon で Gaussian が安定 |
+| RTK carrier phase | Odaiba | float-only, 改善なし | NLOS で integer fix 不可 |
+| Float carrier phase | HK | 効果なし | single-freq + NLOS で ambiguity 収束せず |
+| OSM map constraint | HK | 悪化 | wrong road matching |
+| DGNSS (base station 差分) | Odaiba | 改善なし | gnssplusplus 補正が既に十分 |
+| Hatch filter | Odaiba | 悪化 | urban canyon で carrier phase 途切れ diverge |
+| TDCP predict | Odaiba | IMU に負ける | IMU (wheel+gyro) の方が高精度 |
+| DD PR base interpolation | Odaiba | RMS 暴発 | 1Hz→10Hz 補間の品質が低い |
+| 1M + small sigma_pos | Odaiba | 崩壊 | particle depletion (sp<1) |
+| DD gate 緩和 | Odaiba | 悪化 | 品質の悪い pair を通すと P50 悪化 |
+| DD sigma support scaling | Odaiba | 変化なし | 閾値 sweep で改善しない |
+| sigma_pos < 1.0 (100K) | Odaiba | P50 悪化 | predict noise 不足 |
+| TDCP (GSDC smartphone) | Kaggle | 30.76m (悪化) | smartphone ADR の品質が低い |
+| Hatch filter (GSDC) | Kaggle | 10.15m (悪化) | 頻繁な cycle slip で diverge |
+| Carrier phase smoothing (GSDC) | Kaggle | 全て悪化 | smartphone carrier phase は信頼できない |
 
 ---
 
-## 5. 重要ファイルの地図
+## 4. Kaggle GSDC 2023 詳細
 
-### 5.1 main results / artifact builders
+### 4.1 データ
 
-- `experiments/build_paper_assets.py`
-- `experiments/build_githubio_summary.py`
-- `experiments/build_site_media.py`
-- `experiments/results/paper_assets/paper_main_table.md`
-- `docs/assets/results_snapshot.json`
-- `docs/assets/results_snapshot.js`
+- train: 80+ run × 複数 phone (146 run/phone 組み合わせ)
+- test: 40 trips
+- スマホ: Pixel 4/4XL/5/6Pro/7Pro, Samsung
+- 環境: Mountain View, San Jose, LA — 郊外/highway
 
-### 5.2 website / README
+### 4.2 Train 評価結果
 
-- `README.md`
-- `docs/index.html`
-- `docs/site.css`
-- `.github/workflows/pages.yml`
-- `tests/site/playwright.config.cjs`
-- `tests/site/site.spec.cjs`
+| | Mean P50 | Median P50 | Mean RMS |
+|---|---:|---:|---:|
+| WLS (Android) | **2.62m** | **2.42m** | **5.14m** |
+| PF-100K | 2.83m | 2.62m | 5.36m |
 
-### 5.3 frozen evaluation entry points
+PF wins: 21% (P50), 26% (RMS)
 
-- `experiments/exp_urbannav_fixed_eval.py`
-- `experiments/exp_urbannav_baseline.py`
-- `experiments/exp_urbannav_pf.py`
-- `experiments/exp_urbannav_pf3d.py`
+### 4.3 Test submission 結果
 
-### 5.4 loaders
+| Version | Public | Private | 手法 |
+|---|---:|---:|---|
+| v1 | 4.207m | **5.144m** | pseudorange only |
+| **v3** | **4.128m** | — | + smoother |
+| v2 | 10.150m | — | + TDCP + Hatch (悪化) |
+| v11 | 4.223m | 5.255m | reset-safe segmented smoother |
 
-- `python/gnss_gpu/io/ppc.py`
-- `python/gnss_gpu/io/urbannav.py`
-- `python/gnss_gpu/io/plateau.py`
-- `python/gnss_gpu/ephemeris.py`
+### 4.4 なぜ GSDC で PF が勝てないか
 
-### 5.5 strategy lab
+1. **スマホの pseudorange ノイズが大きい** (15-20m std) → PF の PR update の情報量が少ない
+2. **WLS が既に良い** (Google 最適化済み) → temporal filtering の余地が少ない
+3. **PF の predict noise (sigma_pos=10)** が邪魔 → open-sky ではノイズを足すだけ
+4. **carrier phase がスマホで信頼できない** → TDCP/Hatch が全滅
+5. **smoother が divergence reset をまたぐと hidden/private で壊れる** → reset-safe segmentation で private は 5.255m まで回復したが、public best 更新には未達
 
-- `experiments/pf_strategy_lab/strategies.py`
-- `experiments/pf_strategy_lab/evaluate_strategies.py`
-- `experiments/pf_strategy_lab/cross_validate_families.py`
+### 4.5 ファイル
 
-### 5.6 docs for process
-
-- `docs/experiments.md`
-- `docs/decisions.md`
-- `docs/interfaces.md`
-- `docs/paper_draft_2026-04-01.md`
+- `experiments/exp_gsdc2023_pf.py` — 全 train 評価 (146 run)
+- `experiments/exp_gsdc2023_submission.py` — test submission 生成
+- `experiments/results/gsdc2023_eval.csv` — train 評価結果
+- `experiments/results/gsdc2023_submission.csv` — v1 submission
+- `experiments/results/gsdc2023_submission_v2.csv` — v2 submission
+- `experiments/results/gsdc2023_submission_v3.csv` — v3 submission
 
 ---
 
-## 6. README / GitHub Pages / media の現状
+## 5. UrbanNav 詳細
 
-### 6.1 README
+### 5.1 frozen presets
 
-README はすでに artifact-first に更新済み。
+| Preset | P50 | RMS | 用途 |
+|---|---:|---:|---|
+| odaiba_reference | 1.38m | 5.08m | frozen baseline (2026-04-14 rerun) |
+| odaiba_stop_detect | 1.36m | 4.11m | + stop detection, current best |
+| odaiba_reference_guarded | 1.38m | 5.43m | low-ESS tail guard。full Odaiba では悪化 |
 
-載せているもの:
+### 5.2 DD carrier 統計 (Odaiba, 100K)
 
-- poster
-- teaser GIF
-- teaser `mp4` / `webm`
-- main figures
-- reproduce commands
-- method freeze
-- safe / unsafe claim の整理
+- DD-AFV used: 11208/12252 (91.5%)
+- DD skip: 1044 (8.5%)
+  - gate epoch_skip: 292
+  - support_skip: 261
+  - undiff fallback: 766
+  - carrier anchor: 3
+- DD pseudorange used: 1214/12252 (10%)
+- IMU used: 12251/12252 (100%, stop detect 込み)
+- Stop detect: 4177 epochs
 
-### 6.2 GitHub Pages
+### 5.3 エポック別診断
 
-Pages は `docs/index.html` から静的表示する。
+| 条件 | エポック数 | P50 |
+|---|---:|---:|
+| DD=yes + IMU=yes | 7099 (58%) | **1.107m** |
+| DD=yes + IMU=no | 4109 (34%) | 3.883m |
+| DD=no + IMU=yes | 951 (8%) | 3.840m |
+| DD=no + IMU=no | 69 (0.6%) | 8.291m |
 
-特徴:
+DD pair 数と P50:
+- pairs≥17: **P50=0.899m**
+- pairs=14: P50=1.191m
+- pairs=10: P50=1.418m
+- pairs=0: P50=3.854m
 
-- `results_snapshot.js` を読む
-- `noscript` fallback あり
-- main figures と extra charts を表示
-- teaser video は controls なし、`preload="metadata"`
-- Playwright smoke test あり
+worst epoch は TOW 273836-274261 に集中 (NLOS 区間)。DD=yes でも 20m 級誤差。
 
-### 6.3 teaser 修正
+### 5.4 試行した改善と結果
 
-直近の `41ccb98` は teaser 修正。
-
-何を直したか:
-
-- 変な crop / composition をやめた
-- paper figure をそのまま preview に使うように変更
-- poster 風の full-frame slide にした
-- `video.controls` を外して browser UI の被りを避けた
-
-関係ファイル:
-
-- `experiments/build_site_media.py`
-- `docs/index.html`
-- `docs/assets/media/site_teaser.gif`
-- `docs/assets/media/site_teaser.mp4`
-- `docs/assets/media/site_teaser.webm`
-
-### 6.4 Pages workflow
-
-`.github/workflows/pages.yml` は以下を通す。
-
-1. `python3 experiments/build_paper_assets.py`
-2. `python3 experiments/build_githubio_summary.py`
-3. `npm ci`
-4. `npm run site:smoke`
-
-この順にしてあるので、paper assets と Pages assets のズレが起きにくい。
+| 手法 | P50 | RMS | 結果 |
+|---|---:|---:|---|
+| frozen baseline (sp=1.2) | 1.38m | 5.08m | baseline (2026-04-14 rerun) |
+| + stop detect (σ=0.1) | 1.36m | 4.11m | P50/RMS 改善 ✅ |
+| + sp=1.0 | 1.42m | 4.71m | P50 悪化 |
+| + sp=0.8 | 1.50m | 4.64m | P50 悪化 |
+| support skip 緩和 (max-pairs=2) | 1.37m | 5.14m | P50 微改善 |
+| + smoother tail guard (ESS≤0.001, shift≥4m) | 1.38m | 5.43m | full Odaiba では悪化 |
+| DD gate 緩和 | 1.82m | — | 悪化 |
+| TDCP predict | 1.92m | — | IMU に負ける |
+| DD PR base interpolation | — | 11.05m | RMS 暴発 |
+| Doppler PU sigma=1.5 | 1.74m | 4.93m | RMS 改善のみ |
 
 ---
 
-## 7. validation 状態
+## 6. HK 詳細
 
-### 7.1 freeze validation
+### 6.1 clock bias 問題と解決
 
-出典: `experiments/results/freeze_validation_summary.json`
+- ublox cb ≈ -960,000m (drift +65 m/s) → PF の random walk で追従不能
+- correct_clock_bias() で per-epoch re-centering → 168m→22m
+- Trimble cb ≈ -99,000m (drift ~6 m/s) → PF で自然に追従可能
 
-- headline: `440 passed, 7 skipped`
-- full summary: `440 passed, 7 skipped, 17 warnings`
-- command: `PYTHONPATH=python python3 -m pytest tests/ -q`
+### 6.2 best config
 
-warning の中身:
-
-- `pytest.mark.slow`
-- `datetime.utcnow()`
-- plotting / matplotlib
-
-いまのところ freeze を止める性質の warning ではない。
-
-### 7.2 site validation
-
-- `npm run site:smoke`
-- Playwright 2 tests pass
-
-これは desktop / mobile の smoke で、main sections, figures, video, overflow を見ている。
-
-### 7.3 current repo state
-
-- branch: `main`
-- HEAD: `41ccb98`
-- worktree: clean
+| Config | P50 | P95 | RMS |
+|---|---:|---:|---:|
+| RTKLIB demo5 | 16.18m | 60.85m | 26.80m |
+| SPP | 15.27m | 43.72m | 23.71m |
+| PF + cb + el20 + RAIM + Dop | 14.21m | 41.60m | 22.53m |
 
 ---
 
-## 8. data / loaders の整理
+## 7. CI/テスト状態
 
-### 8.1 PPC
+### 7.1 CI (GitHub Actions)
 
-役割:
+- **lint**: pass (ruff, F841/E741 修正済み)
+- **build-cuda**: pass
+- **test-python**: pass (CUDA/gnssplusplus 依存テストは ignore)
 
-- design split
-- ablation
-- holdout gate evaluation
-
-主ファイル:
-
-- `python/gnss_gpu/io/ppc.py`
-- `experiments/exp_ppc_wls_sweep.py`
-- `experiments/exp_ppc_outlier_analysis.py`
-- `experiments/exp_ppc_pf_gate_sweep.py`
-- `experiments/exp_ppc_pf_blocked_clear_sweep.py`
-
-### 8.2 UrbanNav Tokyo
-
-役割:
-
-- external validation の主戦場
-- main paper claim の source
-
-主ファイル:
-
-- `python/gnss_gpu/io/urbannav.py`
-- `experiments/fetch_urbannav_subset.py`
-- `experiments/exp_urbannav_fixed_eval.py`
-
-### 8.3 UrbanNav Hong Kong
-
-役割:
-
-- cross-geometry weakness の確認
-- supplemental mitigation の testbed
-
-主ファイル:
-
-- `experiments/fetch_urbannav_hk_subset.py`
-- `experiments/exp_urbannav_fixed_eval.py`
-
-### 8.4 PLATEAU
-
-役割:
-
-- PF3D / BVH systems path
-- real mesh integration
-
-主ファイル:
-
-- `python/gnss_gpu/io/plateau.py`
-- `experiments/fetch_plateau_subset.py`
-- `experiments/scan_ppc_plateau_segments.py`
-
----
-
-## 9. まだ残る弱点
-
-全部は潰れていない。いま残っている弱点はかなり限定的。
-
-### 9.1 geography breadth
-
-- Tokyo external は強い（2シーケンス、PF+RobustClear mainline）
-- Hong Kong 3シーケンスで PF+AdaptiveGuide が EKF を上回る
-- ただし HK の winning method は mainline と異なる
-- 5シーケンス/2都市の cross-geography breadth がある
-
-### 9.2 3D map accuracy headline
-
-- 3D path は systems 的に強い
-- でも explicit 3D likelihood が real-data accuracy を押し上げた、とはまだ言いにくい
-
-### 9.3 PPC gate gain の小ささ
-
-- holdout-surviving だが small gain
-- algorithm novelty の主役に据えるには弱い
-
-### 9.4 PF vs PF+RobustClear の差の小ささ
-
-- `PF-10K` も close ablation
-- だから robust-clear story は「real but not huge」
-
-これは弱点でもあるが、同時に誠実さでもある。過大主張しない方がいい。
-
----
-
-## 10. Claude が次にやるなら
-
-### 10.1 いちばん安全な路線
-
-**新しい method を増やさない。**
-
-やること:
-
-1. manuscript source へ fixed assets を移植
-2. bibliography / citation 整理
-3. figure / table の caption を仕上げる
-4. README / Pages と paper の wording を揃える
-
-### 10.2 もし追加実験をするなら
-
-優先順位:
-
-1. **multi-GNSS external breadth の追加**
-2. **Hong Kong でも headline が立つ regime の探索**
-3. **3D path の systems benchmark 拡充**
-
-やらない方がいい:
-
-- 新しい PPC gate family をさらに量産
-- 3D likelihood の headline accuracy 化を急ぐ
-- adaptive / rescue を mainline へ無理に昇格
-
-### 10.3 artifact / infra で触るなら
-
-候補:
-
-- Pages に captions や downloadable CSV 導線を追加
-- CI warnings の軽減
-- media の圧縮や alt text 改善
-
-ただし main story 自体はもう固定でよい。
-
----
-
-## 11. Claude への注意事項
-
-### 11.1 変えない方がいいもの
-
-- `PF+RobustClear-10K` を mainline とする freeze
-- `paper_main_table.md` の headline table
-- Pages / README / snapshot JSON の mainline wording
-
-### 11.2 変えてよいもの
-
-- paper wording
-- captions
-- bibliography
-- asset presentation
-- supplemental section の整理
-
-### 11.3 避けるべき主張
-
-- `strong accept は確定`
-- `3D map が real-data accuracy を押し上げた`
-- `global / geography-independent win`
-- `world first`
-
-### 11.4 安全な主張
-
-- `UrbanNav external では frozen PF path が EKF を大きく上回った`
-- `BVH keeps PF3D accuracy while delivering a large runtime reduction`
-- `PPC gate work is exploratory but holdout-surviving`
-- `the package now supports honest, reproducible artifact-level evaluation`
-
----
-
-## 12. 最低限の再生成コマンド
-
-artifact 層だけならこれで足りる。
+### 7.2 ローカルテスト
 
 ```bash
-python3 experiments/build_paper_assets.py
-python3 experiments/build_site_media.py
-python3 experiments/build_githubio_summary.py
-npm run site:smoke
-PYTHONPATH=python python3 -m pytest tests/ -q
+PYTHONPATH=python python3 -m pytest tests/test_exp_pf_smoother_eval.py -q
+# 18 passed (5m45s)
 ```
 
-### 12.1 key outputs
+### 7.3 frozen reference 再現
 
-- `experiments/results/paper_assets/paper_main_table.md`
-- `experiments/results/paper_assets/paper_captions.md`
-- `docs/assets/results_snapshot.json`
-- `docs/assets/results_snapshot.js`
-- `docs/assets/media/site_teaser.gif`
-- `docs/assets/media/site_teaser.mp4`
-- `docs/assets/media/site_teaser.webm`
+```bash
+PYTHONPATH="python:third_party/gnssplusplus/build/python:third_party/gnssplusplus/python" \
+python3 experiments/exp_pf_smoother_eval.py --data-root /tmp/UrbanNav-Tokyo --preset odaiba_reference
+# SMTH P50=1.38m RMS=5.08m
+```
 
 ---
 
-## 13. 一言でまとめると
+## 8. データセット場所
 
-この repo はもう「新しい gate を探す場所」ではない。  
-いまは **`PF+RobustClear-10K` を frozen mainline として提示し、PPC は design-space、BVH は systems、Hong Kong は limitation/control として正直に並べる段階** である。
+| データ | パス | 受信機 | 用途 |
+|---|---|---|---|
+| Odaiba | /tmp/UrbanNav-Tokyo/Odaiba | Trimble (L1+L2+L5) | headline |
+| Shinjuku | /tmp/UrbanNav-Tokyo/Shinjuku | Trimble (L1+L2+L5) | headline |
+| HK-20190428 | /tmp/UrbanNav-HK/HK_20190428 | ublox M8 (L1) | supplemental |
+| GSDC 2023 | /tmp/gsdc_data/gsdc2023/sdc2023/ | Pixel etc (L1+L5) | supplemental |
 
-Claude が次に入るなら、仕事は exploration ではなく **curation / packaging / manuscript integration** が中心になる。
+---
+
+## 9. ビルド
+
+```bash
+# gnss_gpu CUDA
+cd build && make -j$(nproc)
+cp build/python/gnss_gpu/_gnss_gpu_pf_device.cpython-312-x86_64-linux-gnu.so python/gnss_gpu/
+
+# gnssplusplus
+cd third_party/gnssplusplus/build && cmake --build . -j$(nproc)
+
+# テスト
+PYTHONPATH=python python3 -m pytest tests/test_exp_pf_smoother_eval.py -q
+```
+
+---
+
+## 10. 次にやるべきこと
+
+### 10.1 PR #4 の merge 準備 (最優先)
+
+CI 全 pass。README 最新。merge はユーザーの明示許可待ち。
+
+### 10.2 精度改善の方向 (もし続けるなら)
+
+**1m 切りに到達するには:**
+- DD pair 数を増やす (base station coverage 改善 — データの制約)
+- base station interpolation の品質改善 (1Hz→10Hz、現状は品質不足で RMS 暴発)
+- weak-DD epoch の fallback を DD=yes 並みの品質にする
+
+**攻めて微改善が出る可能性:**
+- support_skip 閾値緩和 (max-pairs=2 で P50 0.01m 改善済み)
+- epoch 2445-4890 の特別扱い (base coverage 穴の区間)
+
+**攻めても改善しないもの:**
+- sigma_pos 縮小 (100K では 1.2 が最適、これ以下は particle depletion)
+- DD gate 緩和 (品質の悪い pair を通すと P50 悪化)
+- TDCP predict (IMU に負ける)
+- smoother tail guard (ESS/shift guard は weak segment の局所改善はあるが、full Odaiba では悪化)
+
+### 10.3 GSDC 改善の方向 (もし続けるなら)
+
+- **DGNSS (基準局差分)** — CORS station のデータが必要。gsdc2023 1st place の主要因。
+- **Robust WLS (Huber)** — PF の代わりに robust WLS で前処理
+- carrier phase は smartphone では使えない (honest negative result)
+
+### 10.4 論文/artifact 整備
+
+- README は最新結果に更新済み
+- GSDC 結果を README に supplemental として追記
+- GIF は Odaiba/Shinjuku/HK 生成済み
+
+---
+
+## 11. 重要ファイル一覧
+
+### 11.1 CUDA コア
+- `src/particle_filter/pf_device.cu`
+- `include/gnss_gpu/pf_device.h`
+- `python/gnss_gpu/_pf_device_bindings.cpp`
+
+### 11.2 Python API
+- `python/gnss_gpu/particle_filter_device.py`
+- `python/gnss_gpu/imu.py`
+- `python/gnss_gpu/dd_pseudorange.py`
+- `python/gnss_gpu/dd_carrier.py`
+- `python/gnss_gpu/dd_quality.py`
+- `python/gnss_gpu/tdcp_velocity.py`
+
+### 11.3 gnssplusplus (submodule)
+- `third_party/gnssplusplus/` (feature/expose-corrected-pseudoranges)
+
+### 11.4 実験スクリプト
+- `experiments/exp_pf_smoother_eval.py` — UrbanNav 主戦場 (preset 対応)
+- `experiments/exp_gsdc2023_pf.py` — GSDC train 評価
+- `experiments/exp_gsdc2023_submission.py` — GSDC test submission
+- `experiments/exp_position_update_eval.py` — position_update 評価
+- `experiments/exp_hk_visualization.py` — HK GIF 生成
+- `experiments/exp_particle_visualization.py` — OSM 可視化
+
+### 11.5 CI
+- `.github/workflows/ci.yml` — lint + test-python + build-cuda
+
+---
+
+## 12. ユーザーからの指示
+
+- **FGO は NG** — PF/smoother の枠組みで攻める
+- **PR #4 は merge 不可** — 明示許可が必要
+- **コミットに Co-Authored-By は付けない**
+- **PR に AI 生成表記は入れない**
+- **完了時刻は具体的な時刻で答える**

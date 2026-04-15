@@ -43,6 +43,9 @@ class ParticleFilterDevice:
             pf_device_initialize,
             pf_device_predict,
             pf_device_weight,
+            pf_device_weight_gmm,
+            pf_device_weight_carrier_afv,
+            pf_device_weight_dd_carrier_afv,
             pf_device_position_update,
             pf_device_shift_clock_bias,
             pf_device_ess,
@@ -50,6 +53,8 @@ class ParticleFilterDevice:
             pf_device_resample_megopolis,
             pf_device_estimate,
             pf_device_get_particles,
+            pf_device_get_log_weights,
+            pf_device_get_resample_ancestors,
             pf_device_sync,
         )
         self._pf_device_create = pf_device_create
@@ -57,6 +62,9 @@ class ParticleFilterDevice:
         self._pf_device_initialize = pf_device_initialize
         self._pf_device_predict = pf_device_predict
         self._pf_device_weight = pf_device_weight
+        self._pf_device_weight_gmm = pf_device_weight_gmm
+        self._pf_device_weight_carrier_afv = pf_device_weight_carrier_afv
+        self._pf_device_weight_dd_carrier_afv = pf_device_weight_dd_carrier_afv
         self._pf_device_position_update = pf_device_position_update
         self._pf_device_shift_clock_bias = pf_device_shift_clock_bias
         self._pf_device_ess = pf_device_ess
@@ -64,6 +72,8 @@ class ParticleFilterDevice:
         self._pf_device_resample_megopolis = pf_device_resample_megopolis
         self._pf_device_estimate = pf_device_estimate
         self._pf_device_get_particles = pf_device_get_particles
+        self._pf_device_get_log_weights = pf_device_get_log_weights
+        self._pf_device_get_resample_ancestors = pf_device_get_resample_ancestors
         self._pf_device_sync = pf_device_sync
 
         self.n_particles = n_particles
@@ -115,7 +125,7 @@ class ParticleFilterDevice:
         self._initialized = True
         self._step = 0
 
-    def predict(self, velocity=None, dt=1.0):
+    def predict(self, velocity=None, dt=1.0, sigma_pos=None):
         """Predict step with optional velocity.
 
         Only 24 bytes (velocity) transferred to GPU.
@@ -126,6 +136,9 @@ class ParticleFilterDevice:
             Velocity in ECEF [m/s]. Defaults to zero (stationary).
         dt : float
             Time step [s].
+        sigma_pos : float, optional
+            Per-step position random-walk sigma [m]. Defaults to ``self.sigma_pos``.
+            Use a smaller value when a high-quality velocity guide (e.g. TDCP) is available.
         """
         if not self._initialized:
             raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
@@ -136,14 +149,16 @@ class ParticleFilterDevice:
             vel = np.asarray(velocity, dtype=np.float64).ravel()
             vx, vy, vz = float(vel[0]), float(vel[1]), float(vel[2])
 
+        sp = float(self.sigma_pos if sigma_pos is None else sigma_pos)
+
         self._step += 1
         self._pf_device_predict(
             self._state,
             vx, vy, vz,
-            float(dt), float(self.sigma_pos), float(self.sigma_cb),
+            float(dt), sp, float(self.sigma_cb),
             self.seed, self._step)
 
-    def update(self, sat_ecef, pseudoranges, weights=None):
+    def update(self, sat_ecef, pseudoranges, weights=None, resample=True):
         """Weight update with pseudorange observations.
 
         Only satellite data (~1KB) transferred to GPU.
@@ -157,6 +172,9 @@ class ParticleFilterDevice:
             Observed pseudoranges [m].
         weights : array_like, shape (n_sat,), optional
             Per-satellite weights (1/sigma^2). Defaults to ones.
+        resample : bool
+            If True (default), run ESS-based adaptive resampling after weighting.
+            Set False to snapshot log-weights and particles before resampling (FFBSi).
         """
         if not self._initialized:
             raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
@@ -175,10 +193,137 @@ class ParticleFilterDevice:
             sat.ravel(), pr, weights,
             n_sat, float(self.sigma_pr), float(self.nu))
 
-        # Adaptive resampling based on ESS
-        ess = self.get_ess()
-        if ess < self.ess_threshold * self.n_particles:
-            self._resample()
+        if resample:
+            _ = self.resample_if_needed()
+
+    def update_gmm(self, sat_ecef, pseudoranges, weights=None, sigma_pr=None,
+                   w_los=0.7, mu_nlos=15.0, sigma_nlos=30.0, resample=True):
+        """Update weights using GMM likelihood (LOS + NLOS components).
+
+        Models pseudorange errors as a mixture of a narrow LOS Gaussian
+        and a wide NLOS Gaussian with positive bias. More robust than
+        Student's t for NLOS multipath in urban environments.
+
+        Parameters
+        ----------
+        sat_ecef : array_like, shape (n_sat, 3)
+            Satellite ECEF positions [m].
+        pseudoranges : array_like, shape (n_sat,)
+            Observed pseudoranges [m].
+        weights : array_like, shape (n_sat,), optional
+            Per-satellite weights (1/sigma^2). Defaults to ones.
+        sigma_pr : float, optional
+            LOS component sigma [m]. Defaults to ``self.sigma_pr``.
+        w_los : float
+            Weight of LOS component (0-1). Default 0.7.
+        mu_nlos : float
+            Mean of NLOS component [m]. Default 15.0.
+        sigma_nlos : float
+            Std of NLOS component [m]. Default 30.0.
+        resample : bool
+            If True (default), run ESS-based adaptive resampling after weighting.
+        """
+        if not self._initialized:
+            raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
+
+        sat = np.asarray(sat_ecef, dtype=np.float64).reshape(-1, 3)
+        pr = np.asarray(pseudoranges, dtype=np.float64).ravel()
+        n_sat = len(pr)
+
+        if weights is None:
+            weights = np.ones(n_sat, dtype=np.float64)
+        else:
+            weights = np.asarray(weights, dtype=np.float64).ravel()
+
+        sp = float(self.sigma_pr if sigma_pr is None else sigma_pr)
+
+        self._pf_device_weight_gmm(
+            self._state,
+            sat.ravel(), pr, weights,
+            n_sat, sp, float(w_los), float(mu_nlos), float(sigma_nlos))
+
+        if resample:
+            _ = self.resample_if_needed()
+
+    def update_carrier_afv(self, sat_ecef, carrier_phase_cycles, weights=None,
+                           wavelength=0.190293673, sigma_cycles=0.05, resample=True):
+        """Update weights using carrier phase AFV likelihood (no ambiguity needed).
+
+        Uses the Ambiguity Function Value: fractional cycle residuals form a
+        sharp likelihood (sigma ~ 0.05 cycles ~ 1 cm) without resolving integer
+        ambiguities. Call AFTER update() (pseudorange) for the MUPF algorithm
+        (Suzuki 2024).
+
+        Parameters
+        ----------
+        sat_ecef : array_like, shape (n_sat, 3)
+            Satellite ECEF positions [m].
+        carrier_phase_cycles : array_like, shape (n_sat,)
+            Observed carrier phase measurements [cycles].
+        weights : array_like, shape (n_sat,), optional
+            Per-satellite elevation weights. Defaults to ones.
+        wavelength : float
+            Carrier wavelength [m]. Default is L1 GPS (0.190293673 m).
+        sigma_cycles : float
+            Standard deviation of AFV residual [cycles]. Default 0.05.
+        resample : bool
+            If True (default), run ESS-based adaptive resampling after weighting.
+        """
+        if not self._initialized:
+            raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
+
+        sat = np.asarray(sat_ecef, dtype=np.float64).reshape(-1, 3)
+        cp = np.asarray(carrier_phase_cycles, dtype=np.float64).ravel()
+        n_sat = len(cp)
+
+        if weights is None:
+            weights = np.ones(n_sat, dtype=np.float64)
+        else:
+            weights = np.asarray(weights, dtype=np.float64).ravel()
+
+        self._pf_device_weight_carrier_afv(
+            self._state,
+            sat.ravel(), cp, weights,
+            n_sat, float(wavelength), float(sigma_cycles))
+
+        if resample:
+            _ = self.resample_if_needed()
+
+    def update_dd_carrier_afv(self, dd_result, wavelength=0.190293673,
+                               sigma_cycles=0.05, resample=True):
+        """Update weights using DD carrier phase AFV likelihood.
+
+        Double-differenced carrier phase eliminates receiver clock bias
+        from both rover and base, and largely cancels atmospheric errors.
+        This makes the AFV likelihood much more effective than undifferenced.
+
+        Parameters
+        ----------
+        dd_result : DDResult
+            Output from :meth:`DDCarrierComputer.compute_dd`.
+        wavelength : float
+            Carrier wavelength [m]. Default is L1 GPS.
+        sigma_cycles : float
+            Standard deviation of DD AFV residual [cycles]. Default 0.05.
+        resample : bool
+            If True (default), run ESS-based adaptive resampling after weighting.
+        """
+        if not self._initialized:
+            raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
+
+        self._pf_device_weight_dd_carrier_afv(
+            self._state,
+            dd_result.sat_ecef_k.ravel(),
+            dd_result.sat_ecef_ref.ravel(),
+            dd_result.dd_carrier_cycles,
+            dd_result.base_range_k,
+            float(dd_result.base_range_ref),
+            dd_result.dd_weights,
+            dd_result.n_dd,
+            float(wavelength), float(sigma_cycles))
+
+        if resample:
+            _ = self.resample_if_needed()
 
     def position_update(self, ref_ecef, sigma_pos=30.0):
         """Apply position-domain soft constraint from external estimate.
@@ -257,6 +402,21 @@ class ParticleFilterDevice:
         else:
             self._pf_device_resample_systematic(self._state, self.seed)
 
+    def resample_if_needed(self):
+        """Resample when ESS falls below ``ess_threshold * n_particles``.
+
+        Returns
+        -------
+        did_resample : bool
+            True if resampling ran. For genealogy smoothers with systematic
+            resampling, call ``get_resample_ancestors()`` only when True.
+        """
+        ess = self.get_ess()
+        if ess < self.ess_threshold * self.n_particles:
+            self._resample()
+            return True
+        return False
+
     def estimate(self):
         """Compute weighted mean position.
 
@@ -288,6 +448,32 @@ class ParticleFilterDevice:
 
         return self._pf_device_get_particles(self._state)
 
+    def get_log_weights(self):
+        """Copy per-particle log-weights from GPU (synchronizes stream).
+
+        Values reflect the current step after ``update`` / ``position_update``.
+        Intended for FFBSi and diagnostics; prefer ``get_ess`` / ``estimate`` for metrics.
+        """
+        if not self._initialized:
+            raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
+
+        out = np.empty(self.n_particles, dtype=np.float64)
+        self._pf_device_get_log_weights(self._state, out)
+        return out
+
+    def get_resample_ancestors(self):
+        """Ancestor indices from the **last** systematic resample: ``out[j]=i`` means slot ``j``
+        copied state from slot ``i``. Only valid after a systematic resample (not Megopolis).
+        """
+        if not self._initialized:
+            raise RuntimeError("ParticleFilterDevice not initialized. Call initialize() first.")
+        if self.resampling != "systematic":
+            raise RuntimeError("get_resample_ancestors requires resampling='systematic'")
+
+        out = np.empty(self.n_particles, dtype=np.int32)
+        self._pf_device_get_resample_ancestors(self._state, out)
+        return out
+
     def get_ess(self):
         """Compute current Effective Sample Size.
 
@@ -313,3 +499,114 @@ class ParticleFilterDevice:
         """
         if hasattr(self, '_state') and self._state is not None:
             self._pf_device_sync(self._state)
+
+    # ----------------------------------------------------------------
+    # Smoother support (forward-backward)
+    # ----------------------------------------------------------------
+
+    def enable_smoothing(self):
+        """Enable epoch storage for offline forward-backward smoothing.
+
+        Call this before the forward pass. After all epochs are processed,
+        call ``smooth()`` to run a backward pass and return smoothed estimates.
+        """
+        self._smooth_epochs = []  # list of (estimate, sat_ecef, pr, weights, velocity, dt, spp_ref)
+        self._smooth_enabled = True
+
+    def store_epoch(self, sat_ecef, pseudoranges, weights, velocity, dt, spp_ref=None):
+        """Store observation data for the current epoch (call after update/estimate).
+
+        Parameters
+        ----------
+        sat_ecef, pseudoranges, weights : array_like
+            Same arrays passed to ``update()``.
+        velocity : array_like or None
+            Velocity used in ``predict()``.
+        dt : float
+            Time step.
+        spp_ref : array_like or None
+            SPP reference position for position_update (None to skip).
+        """
+        if not getattr(self, '_smooth_enabled', False):
+            return
+        est = np.asarray(self.estimate(), dtype=np.float64)
+        self._smooth_epochs.append({
+            'estimate': est[:3].copy(),
+            'sat_ecef': np.asarray(sat_ecef, dtype=np.float64).copy(),
+            'pseudoranges': np.asarray(pseudoranges, dtype=np.float64).copy(),
+            'weights': np.asarray(weights, dtype=np.float64).copy(),
+            'velocity': np.asarray(velocity, dtype=np.float64).copy() if velocity is not None else None,
+            'dt': float(dt),
+            'spp_ref': np.asarray(spp_ref, dtype=np.float64).copy() if spp_ref is not None else None,
+        })
+
+    def smooth(self, position_update_sigma=None):
+        """Run backward pass and return smoothed (forward+backward averaged) estimates.
+
+        Must be called after a complete forward pass with ``enable_smoothing()``
+        and ``store_epoch()`` on every epoch.
+
+        Parameters
+        ----------
+        position_update_sigma : float or None
+            Sigma for SPP position-domain update in backward pass.
+            If None, uses same as forward.
+
+        Returns
+        -------
+        smoothed : ndarray, shape (N_epochs, 3)
+            Smoothed ECEF positions.
+        forward : ndarray, shape (N_epochs, 3)
+            Forward-only estimates (for comparison).
+        """
+        if not getattr(self, '_smooth_enabled', False) or not self._smooth_epochs:
+            raise RuntimeError("No stored epochs. Call enable_smoothing() before forward pass.")
+
+        stored = self._smooth_epochs
+        n_ep = len(stored)
+        forward_pos = np.array([e['estimate'] for e in stored])
+
+        # Backward pass: new PF instance, reversed epoch order
+        last = stored[-1]
+        init_pos = last['estimate']
+        init_cb_candidates = last['pseudoranges'] - np.linalg.norm(
+            last['sat_ecef'].reshape(-1, 3) - init_pos, axis=1)
+        init_cb = float(np.median(init_cb_candidates))
+
+        bwd_pf = ParticleFilterDevice(
+            n_particles=self.n_particles,
+            sigma_pos=self.sigma_pos,
+            sigma_cb=self.sigma_cb,
+            sigma_pr=self.sigma_pr,
+            nu=self.nu,
+            resampling=self.resampling,
+            ess_threshold=self.ess_threshold,
+            seed=self.seed + 1,  # different seed for diversity
+        )
+        bwd_pf.initialize(init_pos, clock_bias=init_cb, spread_pos=10.0, spread_cb=100.0)
+
+        backward_pos = np.zeros((n_ep, 3))
+        for i in range(n_ep - 1, -1, -1):
+            ep = stored[i]
+            vel = -ep['velocity'] if ep['velocity'] is not None else None
+            bwd_pf.predict(velocity=vel, dt=ep['dt'])
+
+            sat = ep['sat_ecef'].reshape(-1, 3)
+            pr = ep['pseudoranges']
+            w = ep['weights']
+            bwd_pf.correct_clock_bias(sat, pr)
+            bwd_pf.update(sat, pr, weights=w)
+
+            pu_sigma = position_update_sigma if position_update_sigma is not None else None
+            if pu_sigma is not None and ep['spp_ref'] is not None:
+                bwd_pf.position_update(ep['spp_ref'][:3], sigma_pos=pu_sigma)
+
+            backward_pos[i] = bwd_pf.estimate()[:3]
+
+        # Combine: simple average (equal weight)
+        smoothed = (forward_pos + backward_pos) / 2.0
+
+        self._smooth_enabled = False
+        self._smooth_epochs = []
+
+        return smoothed, forward_pos

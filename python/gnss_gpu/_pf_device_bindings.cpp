@@ -69,19 +69,84 @@ PYBIND11_MODULE(_gnss_gpu_pf_device, m) {
                                  py::array_t<double> pseudoranges,
                                  py::array_t<double> weights_sat,
                                  int n_sat, double sigma_pr, double nu) {
-        {
-            auto bs = sat_ecef.request();
-            // sat_ecef: accept (N,3) or (N*3,) flat
-        }
+        py::buffer_info b_sat = sat_ecef.request();
+        py::buffer_info b_pr = pseudoranges.request();
+        py::buffer_info b_w = weights_sat.request();
         gnss_gpu::pf_device_weight(state,
-            static_cast<double*>(sat_ecef.request().ptr),
-            static_cast<double*>(pseudoranges.request().ptr),
-            static_cast<double*>(weights_sat.request().ptr),
+            static_cast<double*>(b_sat.ptr),
+            static_cast<double*>(b_pr.ptr),
+            static_cast<double*>(b_w.ptr),
             n_sat, sigma_pr, nu);
     }, "Weight update with optional robust Student's t likelihood",
        py::arg("state"),
        py::arg("sat_ecef"), py::arg("pseudoranges"), py::arg("weights_sat"),
        py::arg("n_sat"), py::arg("sigma_pr"), py::arg("nu") = 0.0);
+
+    m.def("pf_device_weight_gmm", [](gnss_gpu::PFDeviceState* state,
+                                 py::array_t<double> sat_ecef,
+                                 py::array_t<double> pseudoranges,
+                                 py::array_t<double> weights_sat,
+                                 int n_sat, double sigma_pr,
+                                 double w_los, double mu_nlos, double sigma_nlos) {
+        py::buffer_info b_sat = sat_ecef.request();
+        py::buffer_info b_pr = pseudoranges.request();
+        py::buffer_info b_w = weights_sat.request();
+        gnss_gpu::pf_device_weight_gmm(state,
+            static_cast<double*>(b_sat.ptr),
+            static_cast<double*>(b_pr.ptr),
+            static_cast<double*>(b_w.ptr),
+            n_sat, sigma_pr, w_los, mu_nlos, sigma_nlos);
+    }, "Weight update using GMM likelihood (LOS + NLOS mixture)",
+       py::arg("state"),
+       py::arg("sat_ecef"), py::arg("pseudoranges"), py::arg("weights_sat"),
+       py::arg("n_sat"), py::arg("sigma_pr"),
+       py::arg("w_los") = 0.7, py::arg("mu_nlos") = 15.0, py::arg("sigma_nlos") = 30.0);
+
+    m.def("pf_device_weight_carrier_afv", [](gnss_gpu::PFDeviceState* state,
+                                 py::array_t<double> sat_ecef,
+                                 py::array_t<double> carrier_phase,
+                                 py::array_t<double> weights_sat,
+                                 int n_sat, double wavelength, double sigma_cycles) {
+        py::buffer_info b_sat = sat_ecef.request();
+        py::buffer_info b_cp = carrier_phase.request();
+        py::buffer_info b_w = weights_sat.request();
+        gnss_gpu::pf_device_weight_carrier_afv(state,
+            static_cast<double*>(b_sat.ptr),
+            static_cast<double*>(b_cp.ptr),
+            static_cast<double*>(b_w.ptr),
+            n_sat, wavelength, sigma_cycles);
+    }, "Weight update using carrier phase AFV likelihood (no ambiguity resolution needed)",
+       py::arg("state"),
+       py::arg("sat_ecef"), py::arg("carrier_phase"), py::arg("weights_sat"),
+       py::arg("n_sat"), py::arg("wavelength") = 0.190293673, py::arg("sigma_cycles") = 0.05);
+
+    m.def("pf_device_weight_dd_carrier_afv", [](gnss_gpu::PFDeviceState* state,
+                                 py::array_t<double> sat_ecef_k,
+                                 py::array_t<double> ref_ecef,
+                                 py::array_t<double> dd_carrier,
+                                 py::array_t<double> base_range_k,
+                                 double base_range_ref,
+                                 py::array_t<double> weights_dd,
+                                 int n_dd, double wavelength, double sigma_cycles) {
+        py::buffer_info b_sk = sat_ecef_k.request();
+        py::buffer_info b_ref = ref_ecef.request();
+        py::buffer_info b_dd = dd_carrier.request();
+        py::buffer_info b_brk = base_range_k.request();
+        py::buffer_info b_w = weights_dd.request();
+        gnss_gpu::pf_device_weight_dd_carrier_afv(state,
+            static_cast<double*>(b_sk.ptr),
+            static_cast<double*>(b_ref.ptr),
+            static_cast<double*>(b_dd.ptr),
+            static_cast<double*>(b_brk.ptr),
+            base_range_ref,
+            static_cast<double*>(b_w.ptr),
+            n_dd, wavelength, sigma_cycles);
+    }, "Weight update using DD carrier phase AFV (no clock bias needed)",
+       py::arg("state"),
+       py::arg("sat_ecef_k"), py::arg("ref_ecef"),
+       py::arg("dd_carrier"), py::arg("base_range_k"),
+       py::arg("base_range_ref"), py::arg("weights_dd"),
+       py::arg("n_dd"), py::arg("wavelength") = 0.190293673, py::arg("sigma_cycles") = 0.05);
 
     m.def("pf_device_position_update", [](gnss_gpu::PFDeviceState* state,
                                          double ref_x, double ref_y, double ref_z,
@@ -131,6 +196,29 @@ PYBIND11_MODULE(_gnss_gpu_pf_device, m) {
         return output;
     }, "Copy particles to host for visualization (only when needed)",
        py::arg("state"));
+
+    m.def("pf_device_get_log_weights", [](const gnss_gpu::PFDeviceState* state,
+                                         py::array_t<double> out) {
+        int N = state->n_particles;
+        auto r = out.request();
+        if (r.size != N) {
+            throw std::runtime_error("pf_device_get_log_weights: output size must match n_particles");
+        }
+        gnss_gpu::pf_device_get_log_weights(state, static_cast<double*>(r.ptr));
+    }, "Copy log-weights to host (D2H, synchronizes stream)",
+       py::arg("state"), py::arg("out"));
+
+    m.def("pf_device_get_resample_ancestors", [](const gnss_gpu::PFDeviceState* state,
+                                                  py::array_t<int> out) {
+        int N = state->n_particles;
+        auto r = out.request();
+        if (r.size != N) {
+            throw std::runtime_error(
+                "pf_device_get_resample_ancestors: output size must match n_particles");
+        }
+        gnss_gpu::pf_device_get_resample_ancestors(state, static_cast<int*>(r.ptr));
+    }, "After systematic resample: copy ancestor indices out[j]=source (D2H, sync)",
+       py::arg("state"), py::arg("out"));
 
     m.def("pf_device_sync", [](gnss_gpu::PFDeviceState* state) {
         gnss_gpu::pf_device_sync(state);

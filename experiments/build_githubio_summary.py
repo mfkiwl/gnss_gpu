@@ -22,6 +22,7 @@ FIGURES_DIR = ASSETS_DIR / "figures"
 MEDIA_DIR = ASSETS_DIR / "media"
 SNAPSHOT_PATH = ASSETS_DIR / "results_snapshot.json"
 SNAPSHOT_JS_PATH = ASSETS_DIR / "results_snapshot.js"
+ODAIBA_PF_SMOOTHER_FREEZE_JSON = RESULTS_DIR / "odaiba_pf_smoother_freeze.json"
 
 PPC_TUNED_CSV = "pf_strategy_lab_positive6_summary.csv"
 PPC_HOLDOUT_CSV = "pf_strategy_lab_holdout6_r200_s200_summary.csv"
@@ -37,6 +38,15 @@ PAPER_MAIN_TABLE_CSV = "paper_main_table.csv"
 VALIDATION_SUMMARY_JSON = RESULTS_DIR / "freeze_validation_summary.json"
 SITE_MEDIA = {}
 SITE_VIDEO = None
+OPTIONAL_SHOWCASE_ASSETS = {
+    "los_nlos_deckgl.html": RESULTS_DIR / "los_nlos_verification" / "los_nlos_deckgl.html",
+    "los_nlos_deckgl.mp4": RESULTS_DIR / "los_nlos_verification" / "los_nlos_deckgl.mp4",
+    "los_nlos_deckgl.webm": RESULTS_DIR / "los_nlos_verification" / "los_nlos_deckgl.webm",
+    "los_nlos_deckgl.gif": RESULTS_DIR / "los_nlos_verification" / "los_nlos_deckgl.gif",
+    "los_nlos_deckgl_still.png": (
+        RESULTS_DIR / "los_nlos_verification" / "los_nlos_deckgl_still.png"
+    ),
+}
 SITE_CHARTS = {
     "site_urbannav_runs.png": {
         "title": "UrbanNav Per-Run Comparison",
@@ -113,6 +123,10 @@ def _copy_file(src: Path, dst_dir: Path) -> str:
     return str(dst.relative_to(DOCS_DIR)).replace("\\", "/")
 
 
+def _copy_result_path(src: Path) -> str:
+    return _copy_file(src, DATA_DIR)
+
+
 def _copy_data_file(name: str) -> str:
     return _copy_file(RESULTS_DIR / name, DATA_DIR)
 
@@ -129,8 +143,32 @@ def _media_href(name: str) -> str:
     return f"assets/media/{name}"
 
 
+def _sync_optional_showcase_assets() -> set[str]:
+    copied: set[str] = set()
+    for name, src in OPTIONAL_SHOWCASE_ASSETS.items():
+        if src.exists():
+            _copy_file(src, MEDIA_DIR)
+            copied.add(name)
+    return copied
+
+
 def _read_json(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _read_existing_snapshot() -> dict | None:
+    if not SNAPSHOT_PATH.exists():
+        return None
+    try:
+        return _read_json(SNAPSHOT_PATH)
+    except json.JSONDecodeError:
+        return None
+
+
+def _snapshot_without_generated_at(snapshot: dict) -> dict:
+    normalized = dict(snapshot)
+    normalized.pop("generated_at_utc", None)
+    return normalized
 
 
 def _find_row(rows: list[dict[str, str]], key: str, value: str) -> dict[str, str]:
@@ -208,6 +246,7 @@ def _ensure_site_media() -> None:
 def _build_snapshot() -> dict:
     _ensure_paper_assets()
     _ensure_site_media()
+    optional_media = _sync_optional_showcase_assets()
 
     ppc_tuned_rows = _read_csv(PPC_TUNED_CSV)
     ppc_holdout_rows = _read_csv(PPC_HOLDOUT_CSV)
@@ -218,6 +257,7 @@ def _build_snapshot() -> dict:
     bvh_rows = _read_csv(BVH_RUNTIME_CSV)
     paper_main_rows = _read_csv_path(PAPER_ASSETS_DIR / PAPER_MAIN_TABLE_CSV)
     validation = _read_json(VALIDATION_SUMMARY_JSON)
+    odaiba_freeze = _read_json(ODAIBA_PF_SMOOTHER_FREEZE_JSON)
 
     tuned_safe = _find_row(ppc_tuned_rows, "strategy", PPC_SAFE)
     tuned_best = _find_row(ppc_tuned_rows, "strategy", PPC_EXPLORATORY)
@@ -255,6 +295,34 @@ def _build_snapshot() -> dict:
         )
 
     media_cards = []
+    deckgl_sources = []
+    if "los_nlos_deckgl.mp4" in optional_media:
+        deckgl_sources.append({"src": _media_href("los_nlos_deckgl.mp4"), "type": "video/mp4"})
+    if "los_nlos_deckgl.webm" in optional_media:
+        deckgl_sources.append({"src": _media_href("los_nlos_deckgl.webm"), "type": "video/webm"})
+    if deckgl_sources:
+        deckgl_href = (
+            _media_href("los_nlos_deckgl.html")
+            if "los_nlos_deckgl.html" in optional_media
+            else deckgl_sources[0]["src"]
+        )
+        media_cards.append({
+            "kind": "video",
+            "title": "UrbanNav LOS/NLOS Map Sweep",
+            "href": deckgl_href,
+            "caption": (
+                "Long-form deck.gl sweep over OpenStreetMap, with PLATEAU BVH "
+                "providing LOS/NLOS labels, coarse 3D PLATEAU buildings, and "
+                "satellites projected onto a virtual sky ceiling above the receiver."
+            ),
+            "poster": (
+                _media_href("los_nlos_deckgl_still.png")
+                if "los_nlos_deckgl_still.png" in optional_media
+                else ""
+            ),
+            "sources": deckgl_sources,
+        })
+
     for viz_name, viz_title, viz_caption in [
         ("particle_viz_odaiba.mp4", "Odaiba Particle Cloud",
          "100K particles on OpenStreetMap (full + zoom). Orange: particles. Red: PF estimate. Blue: ground truth."),
@@ -289,24 +357,36 @@ def _build_snapshot() -> dict:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "title": "gnss_gpu Artifact Snapshot",
         "subtitle": (
-            "Best method: `PF+RobustClear-10K`. PF beats EKF across "
-            "5 sequences in 2 cities. Particle scaling reveals a phase transition "
-            "at N~1,000 with tail improvement up to 1M."
+            "Current Odaiba best: `PF 100K (DD + smoother + stop-detect)`. "
+            "External mainline remains `PF+RobustClear-10K` across 5 sequences in 2 cities."
         ),
         "status": {
             "label": "Current Read",
-            "value": "PF beats RTKLIB demo5 — RMS 6.72m vs 13.08m",
+            "value": (
+                f"PF beats RTKLIB demo5 — RMS {odaiba_freeze['pf_rms_2d_m']:.2f}m "
+                f"vs {odaiba_freeze['baseline_rms_2d_m']:.2f}m"
+            ),
             "detail": (
-                "With gnssplusplus-corrected pseudoranges, PF (1M particles) achieves "
-                "RMS 6.72m on Odaiba — 49% better than RTKLIB demo5 (13.08m), "
-                "59% better P95, zero catastrophic failures. "
-                "PF family outperforms EKF on all 5 evaluated sequences (Tokyo + Hong Kong). "
-                "24 cited references, gnssplusplus as submodule for GNSS corrections."
+                f"On {odaiba_freeze['dataset']}, `{odaiba_freeze['method']}` reaches "
+                f"P50 {odaiba_freeze['pf_p50_m']:.2f}m and RMS {odaiba_freeze['pf_rms_2d_m']:.2f}m "
+                f"against `{odaiba_freeze['baseline_method']}` at "
+                f"{odaiba_freeze['baseline_p50_m']:.2f}m / {odaiba_freeze['baseline_rms_2d_m']:.2f}m. "
+                f"That is a {odaiba_freeze['p50_improvement_pct']:.0f}% P50 gain and "
+                f"{odaiba_freeze['rms_improvement_pct']:.0f}% RMS gain over "
+                f"{int(odaiba_freeze['n_epochs'])} aligned epochs."
             ),
         },
         "hero_cards": [
             _card(
-                "Best Method",
+                "Odaiba Current Best",
+                (
+                    f"{odaiba_freeze['pf_p50_m']:.2f} / "
+                    f"{odaiba_freeze['pf_rms_2d_m']:.2f} m"
+                ),
+                "PF 100K with DD carrier, DD pseudorange, smoother, and IMU stop-detect.",
+            ),
+            _card(
+                "External Mainline",
                 "PF+RobustClear-10K",
                 "External winner on UrbanNav trimble + G,E,J.",
             ),
@@ -341,8 +421,15 @@ def _build_snapshot() -> dict:
             ),
             _card(
                 "PF vs RTKLIB demo5",
-                "RMS 6.72 vs 13.08 m",
-                "PF (1M particles + gnssplusplus corrections) beats RTKLIB demo5 by 49% in RMS, 59% in P95, with zero >100m failures.",
+                (
+                    f"RMS {odaiba_freeze['pf_rms_2d_m']:.2f} vs "
+                    f"{odaiba_freeze['baseline_rms_2d_m']:.2f} m"
+                ),
+                (
+                    f"`{odaiba_freeze['method']}` beats `{odaiba_freeze['baseline_method']}` "
+                    f"by {odaiba_freeze['rms_improvement_pct']:.0f}% in RMS and "
+                    f"{odaiba_freeze['p50_improvement_pct']:.0f}% in P50 on Odaiba."
+                ),
             ),
             _card(
                 "BVH Speedup",
@@ -352,10 +439,15 @@ def _build_snapshot() -> dict:
         ],
         "repo_summary": [
             "This repo is not presenting a single heroic algorithm. It is an experiment-first GNSS package where comparable variants are built, measured, and either kept or discarded.",
-            "The accuracy headline is the UrbanNav external result with trimble + G,E,J. The PPC gate family remains useful as a design-discipline story, but not as the main empirical claim.",
+            "The README-facing current read is the Odaiba PF smoother result with IMU stop-detect, while the paper-facing external validation remains the UrbanNav trimble + G,E,J result.",
             "The 3D PF path is currently a systems contribution: BVH preserves PF3D accuracy on a real PLATEAU subset while making runtime practical.",
         ],
         "quick_links": [
+            {
+                "label": "Odaiba Freeze JSON",
+                "href": _copy_result_path(ODAIBA_PF_SMOOTHER_FREEZE_JSON),
+                "detail": "Frozen PF smoother checkpoint for the current Odaiba README headline.",
+            },
             {
                 "label": "Paper Main Table",
                 "href": _copy_paper_data_file(PAPER_MAIN_TABLE_CSV),
@@ -394,11 +486,19 @@ def _build_snapshot() -> dict:
         ],
         "method_freeze": [
             _card(
-                "Mainline",
+                "README Current Best",
+                "PF 100K (DD + smoother + stop-detect)",
+                (
+                    f"Odaiba full-run checkpoint at {odaiba_freeze['pf_p50_m']:.2f}m P50 and "
+                    f"{odaiba_freeze['pf_rms_2d_m']:.2f}m RMS. This now drives the README headline."
+                ),
+            ),
+            _card(
+                "External Mainline",
                 "PF+RobustClear-10K",
                 (
                     "Best full-run external method on UrbanNav Tokyo. "
-                    "This is the number that drives the README, Pages, and paper assets."
+                    "This still drives the paper table, external figure, and cross-sequence Pages sections."
                 ),
             ),
             _card(
@@ -506,6 +606,12 @@ def _build_snapshot() -> dict:
                 f"at {_round(_f(robust, 'mean_rms_2d'))} m RMS and "
                 f"{_round(_f(robust, 'mean_p95'))} m P95, ahead of `EKF` at "
                 f"{_round(_f(ekf, 'mean_rms_2d'))} m and {_round(_f(ekf, 'mean_p95'))} m."
+            ),
+            (
+                f"Odaiba README checkpoint: `{odaiba_freeze['method']}` reaches "
+                f"{odaiba_freeze['pf_p50_m']:.2f} m P50 and {odaiba_freeze['pf_rms_2d_m']:.2f} m RMS "
+                f"against `{odaiba_freeze['baseline_method']}` at "
+                f"{odaiba_freeze['baseline_p50_m']:.2f} / {odaiba_freeze['baseline_rms_2d_m']:.2f} m."
             ),
             (
                 "`PF-10K` remains a close ablation at "
@@ -830,6 +936,12 @@ def _build_snapshot() -> dict:
 
 def main() -> None:
     snapshot = _build_snapshot()
+    existing_snapshot = _read_existing_snapshot()
+    if existing_snapshot and (
+        _snapshot_without_generated_at(existing_snapshot)
+        == _snapshot_without_generated_at(snapshot)
+    ):
+        snapshot["generated_at_utc"] = existing_snapshot["generated_at_utc"]
     ASSETS_DIR.mkdir(parents=True, exist_ok=True)
     SNAPSHOT_PATH.write_text(
         json.dumps(snapshot, indent=2, ensure_ascii=False) + "\n",
