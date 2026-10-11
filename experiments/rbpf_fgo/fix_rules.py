@@ -21,9 +21,8 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 sys.path.insert(0, str(_HERE))
-from score_vs_inuex35 import load_reference_grid, rover_epoch_count
-
 from rbpf_fgo import NB_AT_THRESH
+from score_vs_inuex35 import load_reference_grid, rover_epoch_count
 
 
 def errors(d, run, data_root):

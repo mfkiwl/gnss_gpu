@@ -430,10 +430,10 @@ class RbpfConfig:
         # seconds instead of `maxout` graph epochs.
         self.keep = _env_i('RBPF_KEEP', 0)
         self.keep_maxout_s = _env_f('RBPF_KEEP_MAXOUT_S', 10.0)
-        self.keep_drop = set(
+        self.keep_drop = {
             x for x in os.environ.get(
                 'RBPF_KEEP_DROP', 'slip,mw,cmc,fde_cp,fde_cp_ref').split(',')
-            if x)
+            if x}
         self.track_variants = [(self.track_q, self.track_floor,
                                 self.track_empty)]
         for part in os.environ.get('RBPF_TRACK_VARIANTS', '').split(','):
@@ -2334,7 +2334,7 @@ class RbpfFgo:
         if cfg.afv and rows_ is not None and len(rows_):
             x_ = np.asarray(out['pos'], dtype=float)
             b_ = rows_[:, 10] - rows_[:, 7:10] @ (x_ - prob.pos) / rows_[:, 6]
-            out['afv_n'] = int(len(rows_))
+            out['afv_n'] = len(rows_)
             out['afv_frac'] = float(np.mean(np.abs(b_ - np.round(b_))
                                             < cfg.afv_thr))
         if cfg.dump_rows:
