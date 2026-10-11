@@ -28,11 +28,12 @@ from rbpf_fgo import NB_AT_THRESH
 from score_vs_inuex35 import load_reference_grid, rover_epoch_count
 
 
-def errors(d, run, data_root):
-    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
+def errors(d, run, data_root, city=None):
+    city = city or CITY
+    ref = load_reference_grid(city, f"run{run}", data_root=data_root)
     R = np.array([ref.get(round(float(t), 1), np.full(3, np.nan)) for t in d["tow"]])
     return np.linalg.norm(np.asarray(d["sol_xyz"]) - R, axis=1), rover_epoch_count(
-        CITY, f"run{run}", ref)
+        city, f"run{run}", ref)
 
 
 def labels(d, t_idx, floor, phase1):
