@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP45** (`experiments/rbpf_fgo/`): `run_ship.sh` now runs one
+  configuration on all runs. The runner requests two bands per satellite.
+  With three, cssrlib dropped every satellite without L5, and BeiDou used
+  BDS-3-only B1C; WP45 uses BeiDou B1I + B3I and drops GLONASS. Basins
+  survive graph re-seeds, and the `.pos` FIX flag is a leave-one-run-out
+  selected rule on the PF's agreement mass (`--fix-rule`). Tokyo PPC correct
+  FIX (3 seeds) goes from 35.4 / 64.1 / 68.5% to 66.6 / 83.9 / 84.3%, with
+  0.56 / 0.09 / 0.04% of fixes wrong. PPC OFFICIAL goes from 63.7 / 85.1 /
+  86.9% to 80.8 / 92.7 / 90.4%. `RBPF_SHIP=wp43` reproduces the previous
+  release.
 - **RB-FGO-PF WP43** (`experiments/rbpf_fgo/`): the shipped run now reports
   each epoch's MAP basin tracked position belief. Every particle lineage
   keeps its own IMU-predicted Gaussian position belief, updated under its

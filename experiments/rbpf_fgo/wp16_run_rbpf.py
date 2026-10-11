@@ -123,6 +123,75 @@ def _set_shared_filter_env(args):
     os.environ['RBPF_BASE_AR'] = str(args.run_base_ar)
 
 
+def _override_bands(sigs, sigsb, sig_map_rov, sig_map_base, spec, nf,
+                    required):
+    """Re-pick the bands of the systems named in `spec` ('C:2,6,5;G:1,2,5',
+    RINEX system letters) in the given order, keeping only bands that both
+    receivers provide for every required observation type ('R:-' drops
+    the system)."""
+    from cssrlib.gnss import char2sys
+    from gnss_fgo.utils.sig_autodetect import _group_by_band
+    for part in spec.split(";"):
+        if not part.strip():
+            continue
+        letter, bands = part.split(":")
+        sys_id = char2sys(letter.strip())
+        if bands.strip() == "-":     # drop the system
+            sigs = [x for x in sigs if x.sys != sys_id]
+            sigsb = [x for x in sigsb if x.sys != sys_id]
+            print(f"WP45: system {letter} dropped")
+            continue
+        order = [int(b) for b in bands.split(",")]
+        if sys_id not in sig_map_rov or sys_id not in sig_map_base:
+            continue
+        rov = {t: _group_by_band(sig_map_rov[sys_id], t) for t in required}
+        base = {t: _group_by_band(sig_map_base[sys_id], t) for t in required}
+        ok = [b for b in order
+              if all(b in rov[t] and b in base[t] for t in required)][:nf]
+        if len(ok) < nf:
+            raise SystemExit(f"--band-priority {part}: only bands {ok} are "
+                             f"common to rover and base")
+        sigs = [x for x in sigs if x.sys != sys_id]
+        sigsb = [x for x in sigsb if x.sys != sys_id]
+        for b in ok:
+            for t in required:
+                sigs.append(rov[t][b])
+                sigsb.append(base[t][b])
+        print(f"WP45: system {letter} bands {ok}")
+    return sigs, sigsb
+
+
+def _rule_fix(rule, out, cols, ecef, flt_ecef, guard_m=5.0):
+    """WP45 causal FIX label for this epoch (fix_rule_loro.apply on one
+    row): PF agreement counts, the non-empty agreement with its mass, or
+    the shared filter's own LAMBDA fix, behind the PF output guards
+    (reported position within guard_m of the code-only DDPR position and
+    the float / DDPR / fix vote 6 m / 3.5 m)."""
+    t, f, t2, f2, m, b = rule
+    base_fix = cols["base_smode"][-1] == 4 and cols["base_nb"][-1] >= b
+    pf = False
+    if out is not None and out.get("ok"):
+        nb_at = out.get("nb_at") or [0] * 6
+        nb_ne = out.get("nb_at_ne") or [0] * 6
+        ne_mass = float(out.get("ne_mass", float("nan")))
+        pf = (nb_at[int(t)] >= f
+              or (nb_ne[int(t2)] >= f2 and ne_mass >= m))
+    if not (pf or base_fix):
+        return False
+    ddpr = cols["ddpr_xyz"][-1]
+    if np.all(np.isfinite(ddpr)):
+        d_fix = float(np.linalg.norm(np.asarray(ecef) - ddpr))
+        d_flt = float(np.linalg.norm(np.asarray(flt_ecef) - ddpr))
+        if d_fix > guard_m or (d_flt > 6.0 and d_fix > 3.5):
+            return False
+    return True
+
+
+# WP44: `rb_reason` codes (EpochProblem.reason)
+RB_REASONS = ("", "no_joint_marginal", "nonfinite_pos", "no_pairs",
+              "nonfinite_marginal", "no_rows")
+
+
 def _parse_trace_windows(spec):
     wins = []
     for part in (spec or '').split(','):
@@ -181,6 +250,17 @@ def main() -> int:
                          "that --dr-fill bridges")
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
+    ap.add_argument("--fix-rule", default="",
+                    help="WP45 causal FIX label t_idx,F,t2_idx,F2,M,B (the "
+                         "fix_rule_loro.py grammar): the .pos status and the "
+                         "npz `rule_fix` column use it; positions and the "
+                         "PF are unchanged. Empty = the PF's own fix flag")
+    ap.add_argument("--band-priority", default="",
+                    help="WP45: per-system RINEX band order overriding the "
+                         "auto-detect L1>L2>L5 priority, e.g. 'C:2,6,5' picks "
+                         "BeiDou B1I+B3I(+B2a): B1C (band 1) exists on BDS-3 "
+                         "only, so f0&f1 = B1C+B1I keeps ~23%% of the tracked "
+                         "BeiDou satellites on Tokyo run1")
     ap.add_argument("--env", action="append", default=[],
                     help="extra KEY=VAL env overrides (e.g. the WP13r run1 "
                          "recovery flag set), applied after the base config")
@@ -216,6 +296,10 @@ def main() -> int:
     sigs, sigsb = auto_detect_signals(
         dec.sig_map, decb.sig_map, max_freq=args.nf,
         required=(uTYP.C, uTYP.L, uTYP.S))
+    if args.band_priority:
+        sigs, sigsb = _override_bands(sigs, sigsb, dec.sig_map, decb.sig_map,
+                                      args.band_priority, args.nf,
+                                      (uTYP.C, uTYP.L, uTYP.S))
     rov_picks_by_sys = {}
     for s in sigs:
         rov_picks_by_sys.setdefault(s.sys, set()).add(int(s.sig) // 100)
@@ -249,6 +333,7 @@ def main() -> int:
 
     trace_windows = _parse_trace_windows(args.trace_tow)
     trace_rows = []
+    row_dump, row_epochs = [], []   # WP45 RBPF_DUMP_ROWS diagnostic
 
     sync_gen = rn.sync_obs_hold(dec, decb, maxage=args.maxage)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -269,7 +354,11 @@ def main() -> int:
         "gamma", "second_gamma", "gamma_pair", "rb_nb", "rb_nbasins", "rb_ess",
         "rb_ok", "rb_npairs", "rb_nheld", "rb_spawn",
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
-        "trk_var_xyz", "trk_var_mass") + _FCOLS}
+        "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
+        "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
+        "rb_ne_mass", "rule_fix") + _FCOLS}
+    fix_rule = (tuple(float(x) for x in args.fix_rule.split(","))
+                if args.fix_rule else None)
     pos_rows = []
     rtk = None
 
@@ -354,6 +443,16 @@ def main() -> int:
             trk_map_mass=np.asarray(cols["trk_map_mass"]),
             trk_var_xyz=np.asarray(cols["trk_var_xyz"], dtype=float),
             trk_var_mass=np.asarray(cols["trk_var_mass"], dtype=float),
+            rb_nb_at=np.asarray(cols["rb_nb_at"], dtype=int),
+            ddpr_xyz=np.asarray(cols["ddpr_xyz"], dtype=float),
+            base_smode=np.asarray(cols["base_smode"], dtype=int),
+            base_nb=np.asarray(cols["base_nb"], dtype=int),
+            rb_reason=np.asarray(cols["rb_reason"], dtype=int),
+            rb_nb_at_ne=np.asarray(cols["rb_nb_at_ne"], dtype=int),
+            rb_ne_mass=np.asarray(cols["rb_ne_mass"], dtype=float),
+            rb_afv_n=np.asarray(cols["rb_afv_n"], dtype=int),
+            rb_afv_frac=np.asarray(cols["rb_afv_frac"], dtype=float),
+            rule_fix=np.asarray(cols["rule_fix"], dtype=int),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -397,6 +496,13 @@ def main() -> int:
                         cols[k] = [row.copy() for row in np.asarray(old[source])]
                     else:
                         cols[k] = [np.full(3, np.nan) for _ in old_ne]
+                elif k in ("rb_nb_at", "ddpr_xyz", "rb_nb_at_ne"):
+                    arr_ = np.asarray(old[k]) if k in old.files else None
+                    if arr_ is not None and arr_.ndim == 2 and arr_.shape[0] == old_ne.size:
+                        cols[k] = list(arr_)
+                    else:   # pre-WP44 checkpoint
+                        cols[k] = [np.zeros(6, dtype=int) if k != "ddpr_xyz"
+                                   else np.full(3, np.nan) for _ in old_ne]
                 elif k in ("trk_var_xyz", "trk_var_mass"):
                     nv_ = 1 + len([v for v in os.environ.get(
                         "RBPF_TRACK_VARIANTS", "").split(",") if v.strip()])
@@ -541,6 +647,15 @@ def main() -> int:
                     break
 
         cols["ne"].append(ne)
+        if out is not None and out.get("rows") is not None:
+            # WP45 diagnostic rows (RBPF_DUMP_ROWS=1), keyed by npz row
+            ri_ = len(cols["ne"]) - 1
+            row_dump.append(np.column_stack(
+                [np.full(len(out["rows"]), ri_, dtype=float), out["rows"]]))
+            fx_ = out.get("fix_xyz")
+            row_epochs.append(np.concatenate(
+                [[ri_], out["rows_pos0"],
+                 fx_ if fx_ is not None else np.full(3, np.nan)]))
         cols["tow"].append(tow)
         cols["week"].append(week)
         cols["ecef"].append(ecef)
@@ -562,6 +677,31 @@ def main() -> int:
                                      if v_ is not None else np.full(3, np.nan))
         cols["trk_map_mass"].append(float(out.get("trk_map_mass", float("nan")))
                                     if out is not None else float("nan"))
+        # WP44 diagnostic: the shared filter's own report this epoch
+        # (phase 1 runs a fix-and-hold AR before the PF starts)
+        cols["base_smode"].append(int(getattr(nav, "smode", 0)) if updated else 0)
+        cols["base_nb"].append(int(getattr(rtk, "_last_nb", 0) or 0) if updated else 0)
+        # WP44 diagnostic: why the PF had no problem this epoch
+        # (index into RB_REASONS; -1 = PF not stepped)
+        cols["rb_reason"].append(
+            RB_REASONS.index(out["reason"]) if out is not None
+            and out.get("reason") in RB_REASONS else -1)
+        from rbpf_fgo import NB_AT_THRESH
+        cols["rb_nb_at"].append(np.asarray(
+            out["nb_at"] if out is not None and "nb_at" in out
+            else [0] * len(NB_AT_THRESH), dtype=int))
+        cols["rb_nb_at_ne"].append(np.asarray(
+            out["nb_at_ne"] if out is not None and "nb_at_ne" in out
+            else [0] * len(NB_AT_THRESH), dtype=int))
+        cols["rb_ne_mass"].append(float(out.get("ne_mass", float("nan")))
+                                  if out is not None else float("nan"))
+        # WP45 ambiguity-function label feature (RBPF_AFV=1)
+        cols["rb_afv_n"].append(int(out.get("afv_n", 0)) if out is not None else 0)
+        cols["rb_afv_frac"].append(float(out.get("afv_frac", float("nan")))
+                                   if out is not None else float("nan"))
+        dp_ = out.get("ddpr_xyz") if out is not None else None
+        cols["ddpr_xyz"].append(np.asarray(dp_, dtype=float).copy()
+                                if dp_ is not None else np.full(3, np.nan))
         nvar_ = len(rtk.rbpf.cfg.track_variants)
         tv_ = out.get("trk_var") if out is not None else None
         cols["trk_var_xyz"].append(np.array(
@@ -615,8 +755,12 @@ def main() -> int:
                        ("rb_shadow_n", "shadow_n")):
             cols[k].append(float(out.get(ok_, float("nan")))
                            if out is not None else float("nan"))
-        pos_rows.append((week, tow, ecef, 4 if smode == 4 else 5,
-                         int(np.sum(nav.vsat[:, 0]))))
+        rule_ok = (_rule_fix(fix_rule, out, cols, ecef, flt_ecef)
+                   if fix_rule is not None and smode != 6 else False)
+        cols["rule_fix"].append(int(rule_ok))
+        q_ = (4 if rule_ok else 5) if fix_rule is not None else (
+            4 if smode == 4 else 5)
+        pos_rows.append((week, tow, ecef, q_, int(np.sum(nav.vsat[:, 0]))))
 
         if out is not None and any(a <= tow <= b for a, b in trace_windows):
             for rank, tb in enumerate(out['top']):
@@ -672,6 +816,9 @@ def main() -> int:
           f"CHAL={pf.cfg.chal_d}/{pf.cfg.chal_m} "
           f"DDPR_QUAL_MAX={pf.cfg.ddpr_qual_max})")
 
+    if pf.cfg.keep:
+        print(f"WP44: keep=1 maxout_s={pf.cfg.keep_maxout_s} "
+              f"drop={sorted(pf.cfg.keep_drop)}")
     if pf.cfg.track:
         print(f"WP43: track_evals={pf.track_evals} "
               f"({pf.track_evals / max(pf.n_meas_updates, 1):.1f}/epoch) "
@@ -679,6 +826,11 @@ def main() -> int:
               f"inherit={pf.cfg.track_inherit} empty={pf.cfg.track_empty} "
               f"out={pf.cfg.track_out}")
     _write_outputs()
+    if row_dump:
+        rows_path = npz_path.with_name(npz_path.stem + "_rows.npz")
+        np.savez_compressed(rows_path, rows=np.concatenate(row_dump),
+                            epochs=np.asarray(row_epochs))
+        print(f"WP45: wrote {len(row_epochs)} epochs of DD rows to {rows_path}")
     print(f"Wrote {pos_path} and {npz_path}")
 
     # window summary (gate quick-look; official numbers via analyze script)

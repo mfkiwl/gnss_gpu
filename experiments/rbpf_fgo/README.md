@@ -3,8 +3,8 @@
 This directory holds the runtime behind the RB-FGO-PF Tokyo PPC results in the
 top-level README and `internal_docs/inuex35_tc_fgo_benchmark.md`. The files
 are copied verbatim from the private research workspace `repro_tc_fgo` at
-commit `fa57b7f` (2026-10-06), and WP43 (2026-10-10) added default-off
-options to them (see below). They have not been refactored, so the code
+commit `fa57b7f` (2026-10-06), and WP43 (2026-10-10) and WP44–WP45
+(2026-10-11/12) added default-off options to them (see below). They have not been refactored, so the code
 still carries its campaign history (WP numbers, environment-variable
 switches). `wp13m_lambda_diag.py` was never committed there; this is its first
 archived copy.
@@ -99,6 +99,36 @@ Tools added with WP43:
   false fix / lost / missing epochs.
 - `test_loglik_batch.py`: parity check of the batched likelihood kernel
   against the scalar one.
+
+## WP44–WP45 additions (2026-10-11/12)
+
+`run_ship.sh` now runs WP45 by default (`RBPF_SHIP=wp43` and `wp18`
+reproduce the earlier releases). WP45 runs one configuration on all three
+runs; the run1-only recovery flags of WP43/WP18 are not used.
+
+| option | effect |
+|---|---|
+| `--nf 2` | two bands per system. With `--nf 3`, cssrlib's `qcedit` drops every satellite that lacks any of the three bands, although the DD factors use two: about 15 of 25 usable satellites survive on Tokyo run1 |
+| `--band-priority 'C:2,6;R:-'` | per-system band order: BeiDou B1I + B3I (the default L1-first order picked B1C, which only BDS-3 transmits), GLONASS dropped (no FDMA channel table) |
+| `--env RBPF_KEEP=1` | basin persistence: only real slips (slip / MW / CMC / FDE on carrier) remove an integer from the basins; graph re-seeds keep them and an unseen (sat, f) ages out after `RBPF_KEEP_MAXOUT_S` (10 s) |
+| `--fix-rule t,F,t2,F2,M,B` | causal FIX label for the `.pos` flag and the npz `rule_fix` column: `nb_at[t] >= F`, or `nb_at_ne[t2] >= F2` with non-empty mass `>= M`, or the shared filter's own LAMBDA fix with `>= B` ambiguities, behind the PF output guards. Positions and the filter are unchanged. WP45 ships `3,5,3,12,0.1,5`, the rule `fix_rule_loro.py` selects in every leave-one-run-out fold |
+| `--env RBPF_AFV=1` | diagnostic: share of the epoch's DD carrier rows within `RBPF_AFV_THR` (0.15) cycle of an integer at the reported position (`rb_afv_n`, `rb_afv_frac`) |
+| `--env RBPF_DUMP_ROWS=1` | diagnostic: every phase-observed DD row of each epoch with the MAP basin's integer and agreement mass (`runN_rows.npz`) |
+| `--env RBPF_TRACK_PROBATION_S=s` | `RBPF_TRACK=1` only: score on the loose float prior for `s` seconds after a belief reset. Not adopted |
+
+Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
+npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
+`fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;
+`--afv` and `--witness-pos` add the ambiguity-function and an external
+RTK witness term), `fix_witness.py` (ambiguity-function study on row
+dumps).
+
+Scoring a WP45 run (the `.pos` flag is already the rule label, so no
+relabelling):
+
+```bash
+python fix_integrity.py --data-root .../PPC-Dataset --traj ship:3:results/ship_r3/run3.pos:pos
+```
 
 On Linux (Ubuntu 24.04, Python 3.12, 4 cores, 16 GB) `setup_deps.sh` builds
 the GTSAM stage when the compile is limited to two jobs
