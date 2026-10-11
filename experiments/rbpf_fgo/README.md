@@ -3,7 +3,8 @@
 This directory holds the runtime behind the RB-FGO-PF Tokyo PPC results in the
 top-level README and `internal_docs/inuex35_tc_fgo_benchmark.md`. The files
 are copied verbatim from the private research workspace `repro_tc_fgo` at
-commit `fa57b7f` (2026-10-06). They have not been refactored, so the code
+commit `fa57b7f` (2026-10-06), and WP43 (2026-10-10) added default-off
+options to them (see below). They have not been refactored, so the code
 still carries its campaign history (WP numbers, environment-variable
 switches). `wp13m_lambda_diag.py` was never committed there; this is its first
 archived copy.
@@ -64,6 +65,45 @@ Optional map-aided setting (WP39, not the default): `--env NLOS_ENABLE=1
 `--receiver-pos-file` pointing at a first-pass output. Without that flag the
 builder ray-traces at the ground truth, which is an oracle.
 
+## WP43 additions (2026-10-10)
+
+The copy is no longer verbatim: WP43 added the options below. Each defaults
+to off, and with all of them off the output is bit-identical to the
+original copy (checked with `check_frozen_copy.py` on 1,200 run3 epochs).
+
+| option | effect |
+|---|---|
+| `--env RBPF_TRACK=2` | shadow tracking: every particle lineage carries a Gaussian belief of the antenna position, predicted with the shared graph's IMU motion increment and updated with the epoch's DD rows under the lineage's own integers. Weights, holds and FIX decisions are unchanged. |
+| `--env RBPF_TRACK_OUT=2` | report the MAP basin's mass-weighted tracked belief on every epoch where it exists (FIX/FLOAT labels unchanged) |
+| `--env RBPF_TRACK_EMPTY=1` | also track float (empty-basin) lineages with a code-only belief |
+| `--env RBPF_TRACK_Q`, `RBPF_TRACK_FLOOR` | random-walk sigma per graph epoch (0.02 m) and posterior floor (0.01 m) |
+| `--env RBPF_TRACK_VARIANTS=q:floor:empty,...` | extra shadow variants on the same filter, recorded in `trk_var_xyz` for offline comparison |
+| `--dr-fill 1` | on rover epochs the graph abandons, output the last reported position plus the IMU-predicted antenna motion (smode 6, written as float) |
+| `--env RBPF_TRACK=1` | experimental: score the moves against the tracked beliefs too (one batched solve per particle x move). Not adopted: more fixes, more false fixes. |
+
+`run_ship.sh` now runs the WP43 configuration (`--dr-fill 1 --env
+RBPF_TRACK=2 --env RBPF_TRACK_EMPTY=1 --env RBPF_TRACK_OUT=2` on top of
+WP18); `RBPF_SHIP=wp18 bash run_ship.sh ...` reproduces the WP18 output.
+The FIX decisions are identical in both. Results and the reasoning are in
+the WP43 section of `internal_docs/inuex35_tc_fgo_benchmark.md`.
+
+Tools added with WP43:
+
+- `run_queue.sh`: run a queue file of `run_ship.sh` jobs with bounded
+  concurrency (3–4 jobs fit in 16 GB).
+- `score_runs.py`: official matched-3D score of `results/<prefix>_r{1,2,3}`
+  with the `nb >= 12` floor, and the mean/std over seeds.
+- `output_policies.py`: offline comparison of output policies on saved runs
+  (shipped float, tracked belief, fix-offset hold, offline interpolation).
+- `error_budget.py`: splits the `<50cm_full%` denominator into fix / float /
+  false fix / lost / missing epochs.
+- `test_loglik_batch.py`: parity check of the batched likelihood kernel
+  against the scalar one.
+
+On Linux (Ubuntu 24.04, Python 3.12, 4 cores, 16 GB) `setup_deps.sh` builds
+the GTSAM stage when the compile is limited to two jobs
+(`CMAKE_BUILD_PARALLEL_LEVEL=2`); four jobs ran out of memory.
+
 ## Checking the copy
 
 `check_frozen_copy.py` compares the shipped mode, resolved-ambiguity count
@@ -72,6 +112,6 @@ prefixes of run1 and run3 from this directory were bit-identical to the
 archived WP18 full runs:
 
 ```bash
-bash run_ship.sh smoke_r3 3 400 --checkpoint-every 0
+RBPF_SHIP=wp18 bash run_ship.sh smoke_r3 3 400 --checkpoint-every 0
 python check_frozen_copy.py results/smoke_r3/run3.npz <archived full_r3/run3.npz>
 ```

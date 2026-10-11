@@ -172,6 +172,13 @@ def main() -> int:
                          "fresh at the boundary (brief re-convergence, like "
                          "any RTK engine restart); the graph re-seed arms the "
                          "PF's re-entry spawner automatically.")
+    ap.add_argument("--dr-fill", type=int, default=0,
+                    help="WP43: output an IMU dead-reckoned position (smode 6, "
+                         "written as float) on rover epochs the graph abandons "
+                         "(last reported position + predicted antenna motion)")
+    ap.add_argument("--dr-max-s", type=float, default=1e9,
+                    help="WP43: longest gap [s] since the last committed epoch "
+                         "that --dr-fill bridges")
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
     ap.add_argument("--env", action="append", default=[],
@@ -260,7 +267,9 @@ def main() -> int:
         "smode", "err3d", "nsat_dd",
         "flt_err3d", "flt_xyz", "map_err3d", "ar_ratio", "ar_raw_nb", "ar_phase",
         "gamma", "second_gamma", "gamma_pair", "rb_nb", "rb_nbasins", "rb_ess",
-        "rb_ok", "rb_npairs", "rb_nheld", "rb_spawn") + _FCOLS}
+        "rb_ok", "rb_npairs", "rb_nheld", "rb_spawn",
+        "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
+        "trk_var_xyz", "trk_var_mass") + _FCOLS}
     pos_rows = []
     rtk = None
 
@@ -338,6 +347,13 @@ def main() -> int:
             rb_npairs=np.asarray(cols["rb_npairs"]),
             rb_nheld=np.asarray(cols["rb_nheld"]),
             rb_spawn=np.asarray(cols["rb_spawn"]),
+            trk_map_xyz=(np.asarray(cols["trk_map_xyz"]) if cols["trk_map_xyz"]
+                         else np.zeros((0, 3))),
+            trk_mix_xyz=(np.asarray(cols["trk_mix_xyz"]) if cols["trk_mix_xyz"]
+                         else np.zeros((0, 3))),
+            trk_map_mass=np.asarray(cols["trk_map_mass"]),
+            trk_var_xyz=np.asarray(cols["trk_var_xyz"], dtype=float),
+            trk_var_mass=np.asarray(cols["trk_var_mass"], dtype=float),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -374,12 +390,22 @@ def main() -> int:
             }
         if old_ne.size > 0:
             for k in cols:
-                if k in ("ecef", "witness_xyz"):
-                    source = "sol_xyz" if k == "ecef" else "witness_xyz"
+                if k in ("ecef", "witness_xyz", "flt_xyz", "trk_map_xyz",
+                         "trk_mix_xyz"):
+                    source = "sol_xyz" if k == "ecef" else k
                     if source in old.files:
                         cols[k] = [row.copy() for row in np.asarray(old[source])]
                     else:
                         cols[k] = [np.full(3, np.nan) for _ in old_ne]
+                elif k in ("trk_var_xyz", "trk_var_mass"):
+                    nv_ = 1 + len([v for v in os.environ.get(
+                        "RBPF_TRACK_VARIANTS", "").split(",") if v.strip()])
+                    arr_ = np.asarray(old[k]) if k in old.files else None
+                    if arr_ is not None and arr_.ndim >= 2 and arr_.shape[0] == old_ne.size:
+                        cols[k] = list(arr_)
+                    else:   # pre-WP43 checkpoint
+                        shape_ = (nv_, 3) if k == "trk_var_xyz" else (nv_,)
+                        cols[k] = [np.full(shape_, np.nan) for _ in old_ne]
                 elif k in old.files:
                     cols[k] = list(np.asarray(old[k]).reshape(-1))
                 else:   # pre-WP18 checkpoint: nan-backfill new diagnostics
@@ -423,6 +449,7 @@ def main() -> int:
               f"imu_idx={st['imu_idx']} week={st['week']} "
               f"tow={st['tow']:.1f})")
 
+    last_rep = None       # WP43 --dr-fill anchor: (ecef, antenna, tow)
     t_start = time.time()
     n_fix = sum(1 for s in cols["smode"] if int(s) == 4)
     n_flt = sum(1 for s in cols["smode"] if int(s) != 4)
@@ -464,16 +491,36 @@ def main() -> int:
         rtk.process(obs, obsb=obsb)
         updated = rtk.last_valid_epoch != prev_valid
         week, tow = gn.time2gpst(obs.t)
+        dr_ecef = None
         if not updated:
-            continue
+            if not (args.dr_fill and last_rep is not None
+                    and tow - last_rep[2] <= args.dr_max_s):
+                continue
+            got = rtk.predict_antenna_at(obs.t)
+            if got is None:
+                continue
+            dr_ecef = last_rep[0] + (got[0] - last_rep[1])
+            if not np.all(np.isfinite(dr_ecef)):
+                continue
 
-        out = rtk._rbpf_last     # None during phase 1 / when PF not stepped
+        out = rtk._rbpf_last if updated else None
         flt_ecef = nav.x[0:3].copy()
-        if out is not None and out['pos'] is not None:
+        if dr_ecef is not None:
+            ecef, smode = dr_ecef, 6
+        elif out is not None and out['pos'] is not None:
             ecef = np.asarray(out['pos'], dtype=float)
             smode = 4 if out['fix'] else 5
         else:
             ecef, smode = flt_ecef, 5
+        if (updated and args.dr_fill and getattr(rtk, 'phase', 1) == 2
+                and rtk.current_estimate is not None):
+            try:
+                last_rep = (np.asarray(ecef, dtype=float).copy(),
+                            rtk._antenna_ecef(rtk.current_estimate.atPose3(
+                                rtk.PX(rtk.last_valid_epoch))),
+                            tow)
+            except RuntimeError:
+                last_rep = None
         if smode == 4:
             n_fix += 1
         else:
@@ -509,6 +556,20 @@ def main() -> int:
         cols["flt_xyz"].append(np.asarray(flt_ecef, dtype=float).copy()
                                if flt_ecef is not None else np.full(3, np.nan))
         cols["map_err3d"].append(map_err)
+        for k_ in ("trk_map", "trk_mix"):
+            v_ = out.get(k_) if out is not None else None
+            cols[k_ + "_xyz"].append(np.asarray(v_, dtype=float).copy()
+                                     if v_ is not None else np.full(3, np.nan))
+        cols["trk_map_mass"].append(float(out.get("trk_map_mass", float("nan")))
+                                    if out is not None else float("nan"))
+        nvar_ = len(rtk.rbpf.cfg.track_variants)
+        tv_ = out.get("trk_var") if out is not None else None
+        cols["trk_var_xyz"].append(np.array(
+            [np.full(3, np.nan) if tv_ is None or tv_[v][0] is None
+             else np.asarray(tv_[v][0], dtype=float) for v in range(nvar_)]))
+        cols["trk_var_mass"].append(np.array(
+            [float("nan") if tv_ is None else tv_[v][1]
+             for v in range(nvar_)]))
         _s0 = getattr(rtk, '_last_s0', 0.0)
         _s1 = getattr(rtk, '_last_s1', 0.0)
         cols["ar_ratio"].append(float(_s1 / _s0) if _s0 > 0 else 0.0)
@@ -611,6 +672,12 @@ def main() -> int:
           f"CHAL={pf.cfg.chal_d}/{pf.cfg.chal_m} "
           f"DDPR_QUAL_MAX={pf.cfg.ddpr_qual_max})")
 
+    if pf.cfg.track:
+        print(f"WP43: track_evals={pf.track_evals} "
+              f"({pf.track_evals / max(pf.n_meas_updates, 1):.1f}/epoch) "
+              f"Q={pf.cfg.track_q} floor={pf.cfg.track_floor} "
+              f"inherit={pf.cfg.track_inherit} empty={pf.cfg.track_empty} "
+              f"out={pf.cfg.track_out}")
     _write_outputs()
     print(f"Wrote {pos_path} and {npz_path}")
 

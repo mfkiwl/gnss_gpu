@@ -195,6 +195,121 @@ history), not a position memory; it is designed but not started. The handoff
 note, together with seed-queue, scoring and aggregation tools, is in
 `repro_tc_fgo/results/wp42/WP42_REPORT.md` and `repro_tc_fgo/tools/`.
 
+### Tracked lineage beliefs and dead-reckoned gap fill (WP43, 2026-10-10)
+
+WP43 is the new shipped configuration. It changes only what is written out:
+the particle weights, holds and FIX decisions are identical to WP18. The
+work ran in `experiments/rbpf_fgo/` (no longer a verbatim copy). The
+platform was Linux, Python 3.12, 4 cores and 16 GB, using the PPC data from
+the official OneDrive archive.
+
+**Where WP18 loses epochs.** `error_budget.py` splits the full denominator.
+Three-seed means, as % of rover epochs:
+
+| run | FIX ok | FLOAT ok | false FIX | FLOAT, MAP basin ok | FLOAT lost | no output |
+|---|---:|---:|---:|---:|---:|---:|
+| run1 | 35.35 | 24.75 | 0.16 | 3.69 | 27.70 | 8.35 |
+| run2 | 64.08 | 14.83 | 0.11 | 3.38 | 8.72 | 8.88 |
+| run3 | 68.54 | 13.32 | 0.07 | 2.91 | 9.72 | 5.43 |
+
+- **No output (5–9%).** These are rover epochs the graph abandons (fewer
+  than 6 satellites, GDOP, solve failure). The scorer counts them as
+  failures.
+- **FLOAT lost.** These are mostly segments with 6–15 DD pairs where the
+  shared float is 1–2 m off. In run1, about 15 pp is the tunnel, which has
+  no carrier at all.
+- **Diagnostic on run2's float-bad epochs.** `RBPF_DBG4` was extended with
+  the candidate Hamming distance and the held basin. Over the first 6,200
+  epochs, the truth basin is among the LAMBDA top-K in 54% of float-bad
+  epochs. Its single-epoch likelihood beats the best held basin in only
+  20%. The loss is the measurement model under multipath, not candidate
+  supply.
+
+**Mechanism.** Each particle lineage carries a Gaussian belief of the
+antenna position (`RBPF_TRACK=2`). The belief is predicted between epochs
+with the shared graph's IMU motion increment (an odometer of committed
+epochs; a PIM break or a gap over 2 s resets it). It is updated with the
+epoch's DD rows under the lineage's own integers. The model is the WP18
+likelihood (Huber, mixture, group nuisance) with the belief as the prior
+instead of the 1 m float prior. Empty lineages carry a code-only belief
+(`RBPF_TRACK_EMPTY=1`).
+
+The reported position (`RBPF_TRACK_OUT=2`) is the MAP basin's mass-weighted
+belief whenever one exists, on FIX and FLOAT epochs alike. On rover epochs
+the graph abandons, `--dr-fill 1` outputs the last reported position plus
+the IMU-predicted antenna motion (smode 6, written as float).
+
+This is not the WP19–22/WP42 cluster shadow. That fed a remembered position
+into the weights and centred the next epoch's prior on the previous
+absolute position, without the vehicle's motion. WP43 predicts with the IMU
+and leaves the weights alone.
+
+**Result.** Official matched-3D scorer, `nb >= 12` floor, seeds
+20260710/11/12. WP18 comes from shadow runs whose FIX labels and `nb` were
+checked identical to the WP43 runs, with the gap-fill rows removed and the
+float positions kept. Values are mean ± sample std:
+
+| run | metric | WP18 | WP43 | per seed |
+|---|---|---:|---:|---|
+| run1 | `<50cm_full%` | 60.10 ± 1.83 | **63.07 ± 1.37** | +3.94 / +2.34 / +2.64 |
+| run1 | PPC OFFICIAL | 57.13 ± 2.46 | **63.68 ± 1.75** | +7.99 / +5.51 / +6.14 |
+| run2 | `<50cm_full%` | 78.91 ± 1.12 | **82.65 ± 1.22** | +4.06 / +3.48 / +3.67 |
+| run2 | PPC OFFICIAL | 82.22 ± 1.56 | **85.08 ± 1.28** | +2.75 / +2.60 / +3.22 |
+| run3 | `<50cm_full%` | 81.86 ± 0.33 | **86.65 ± 0.24** | +4.81 / +4.86 / +4.69 |
+| run3 | PPC OFFICIAL | 83.47 ± 0.66 | **86.94 ± 0.27** | +3.02 / +3.75 / +3.64 |
+
+- **Every seed improves on every run.** WP43 is above libgnss++ GTSAM
+  (56.8 / 80.5 / 72.8) and inuex35 (56.7 / 69.9 / 67.9) on all three runs.
+- **FIX quality.** The FIX labels do not change. The tracked FIX positions
+  are slightly better: FixRMS 0.178 / 0.073 / 0.055 m against
+  0.187 / 0.075 / 0.060 m, and false fixes 0.33 / 0.16 / 0.10% against
+  0.47 / 0.17 / 0.11%.
+- **Fix rate over scored epochs.** It drops (35.5 / 64.2 / 68.6%) only
+  because the gap-fill rows enlarge the denominator. The FIX count is
+  unchanged.
+- **The two parts add up.** Tracked output alone gives +1.42 / +2.10 / +2.57
+  pp `<50cm_full%`; the gap fill alone gives +1.32 / +1.14 / +2.10 pp.
+- **Knobs.** They were chosen on seed 20260710 with `RBPF_TRACK_VARIANTS`
+  (several shadow trackers on one filter):
+  - Random walk: 0.02 m per epoch beat 0.01, 0.05 and 0.1.
+  - Posterior floor: 0.01 m beat 0.05.
+  - Tracking the empty lineages beat not tracking them on all three runs.
+
+  Seeds 11 and 12 were then run once with the chosen setting.
+- **Offline alternative.** On top of the gap fill, interpolating the
+  FIX–float offset over FLOAT epochs (`output_policies.py interp`, which
+  uses future epochs) adds +1.3 pp. The causal tracked output adds
+  +2.1–2.4 pp in the same comparison (without the empty lineages).
+
+**Not adopted.**
+
+- **`RBPF_TRACK=1`: tracked beliefs also inside the weights.** Every particle
+  x move is solved in one batched kernel (`_loglik_batch`, which matches the
+  scalar likelihood to 6e-10), about 400–500 solves per epoch instead of
+  about 21. On run1 (seed 20260710) it raised the fix rate from 37.3% to
+  43.3%. It also locked a 0.72 m wrong basin after the tunnel: false fixes
+  2.39% against 0.56%, `<50cm_full%` 58.20 against 58.89. A lineage's tight
+  belief gives an incumbent basin an Occam advantage of about 10 nats per
+  epoch over a fresh adoption, so the first basin to enter wins.
+- **N = 256 particles (seed 20260710).** With the WP43 output, run1
+  scores 62.06% / 63.72 against 62.83% / 63.60 at N = 64, and run2 scores
+  81.72% / 85.04 against 83.65% / 86.25. The PF time is 3.5x (210 against
+  60 ms per step on run1; 311 against 89 ms on run2, both runs carrying six
+  shadow variants).
+
+**Real time.** On 3,000 run2 epochs in a single process: WP18 runs at 11.6
+epochs/s and WP43 at 10.7 epochs/s, both above 2x real time at 5 Hz. The PF
+step goes from 55.5 to 62.6 ms, with about 37 belief updates per epoch.
+
+**GPU.** The WP43 gain does not need more compute. More particles do not
+help, and the compute-heavy `RBPF_TRACK=1` hurts, so a GPU port is still not
+justified by accuracy. The batched kernel is where one would start if a
+future variant needs thousands of hypothesis solves per epoch.
+
+Reproduction: `experiments/rbpf_fgo/run_ship.sh` (now WP43 by default;
+`RBPF_SHIP=wp18` for the old output), `run_queue.sh`, `score_runs.py`,
+`output_policies.py`, `error_budget.py`.
+
 Gamma is calibrated where coherent multipath shifts are absent (96.3–97.1%
 full-scale accuracy for gamma >= 0.99), not universally perfect. Run 1 AllRMS
 is 19.5 m because of its tunnel float tail; its fixed layer is unaffected. The
