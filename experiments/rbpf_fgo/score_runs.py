@@ -20,6 +20,9 @@ from pathlib import Path
 
 import numpy as np
 
+# PPC city of the scored runs (tokyo | nagoya)
+CITY = __import__("os").environ.get("PPC_CITY", "tokyo")
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 from score_vs_inuex35 import (
@@ -37,8 +40,8 @@ def score_npz(npz, run, data_root, nb_floor, drop_dr=False):
                               is_fix=bool(f))
               for t, x, f, s in zip(d["tow"], d["sol_xyz"], fix, sm)
               if not (drop_dr and s == 6)]
-    ref = load_reference_grid("tokyo", f"run{run}", data_root=data_root)
-    res = score_trajectory(epochs, ref, city="tokyo", run=f"run{run}",
+    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
+    res = score_trajectory(epochs, ref, city=CITY, run=f"run{run}",
                            traj_path=Path(npz), fmt="npz")
     # false-fix share among reported fixes
     ref_tows = np.asarray(sorted(ref))

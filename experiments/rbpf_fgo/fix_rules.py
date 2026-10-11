@@ -18,6 +18,9 @@ from pathlib import Path
 
 import numpy as np
 
+# PPC city of the scored runs (tokyo | nagoya)
+CITY = __import__("os").environ.get("PPC_CITY", "tokyo")
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 sys.path.insert(0, str(_HERE))
@@ -26,10 +29,10 @@ from score_vs_inuex35 import load_reference_grid, rover_epoch_count
 
 
 def errors(d, run, data_root):
-    ref = load_reference_grid("tokyo", f"run{run}", data_root=data_root)
+    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
     R = np.array([ref.get(round(float(t), 1), np.full(3, np.nan)) for t in d["tow"]])
     return np.linalg.norm(np.asarray(d["sol_xyz"]) - R, axis=1), rover_epoch_count(
-        "tokyo", f"run{run}", ref)
+        CITY, f"run{run}", ref)
 
 
 def labels(d, t_idx, floor, phase1):

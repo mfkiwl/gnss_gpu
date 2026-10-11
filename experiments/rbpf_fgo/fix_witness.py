@@ -23,6 +23,9 @@ from pathlib import Path
 
 import numpy as np
 
+# PPC city of the scored runs (tokyo | nagoya)
+CITY = __import__("os").environ.get("PPC_CITY", "tokyo")
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 sys.path.insert(0, str(_HERE.parent))
@@ -91,7 +94,7 @@ def afv_features(npz_path, thr=0.15):
 def load_run(results, prefix, run, data_root, thr):
     d = np.load(results / f"{prefix}_r{run}" / f"run{run}.npz")
     z = np.load(results / f"{prefix}_r{run}" / f"run{run}_rows.npz")
-    ref = load_reference_grid("tokyo", f"run{run}", data_root=data_root)
+    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
     R = np.array([ref.get(round(float(t), 1), np.full(3, np.nan)) for t in d["tow"]])
     sol = np.asarray(d["sol_xyz"], dtype=float)
     fix = (np.asarray(d["smode"]) == 4) & (np.asarray(d["rb_nb"]) >= 12)
