@@ -25,7 +25,9 @@ GUARDS="--env RBPF_FIX_VOTE_DD=6.0 --env RBPF_FIX_VOTE_DPR=3.5 --env RBPF_FB_COM
 WP43="--dr-fill 1 --env RBPF_TRACK=2 --env RBPF_TRACK_EMPTY=1 --env RBPF_TRACK_OUT=2"
 if [ "${RBPF_SHIP:-wp43}" = "wp18" ]; then WP43=""; fi
 R1FLAGS=""
-if [ "$RUN" = "1" ]; then
+# RBPF_R1FLAGS=0 drops the run1-only WP13r recovery flags (sanity reset +
+# post-reset carrier-phase hold); default 1 keeps them.
+if [ "$RUN" = "1" ] && [ "${RBPF_R1FLAGS:-1}" != "0" ]; then
   R1FLAGS="--sanity-enable 1 --env SANITY_PR_ONLY=1 --env RECOV_CP_HOLD_EPOCHS=5 --env RECOV_CP_RELEASE_THRESH=2.0 --env RECOV_CP_RELEASE_COUNT=5 --env SANITY_MAX_MEDIAN_RATIO=5.0"
 fi
 mkdir -p "$HERE/results"

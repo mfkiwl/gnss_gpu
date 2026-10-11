@@ -123,6 +123,11 @@ def _set_shared_filter_env(args):
     os.environ['RBPF_BASE_AR'] = str(args.run_base_ar)
 
 
+# WP44: `rb_reason` codes (EpochProblem.reason)
+RB_REASONS = ("", "no_joint_marginal", "nonfinite_pos", "no_pairs",
+              "nonfinite_marginal", "no_rows")
+
+
 def _parse_trace_windows(spec):
     wins = []
     for part in (spec or '').split(','):
@@ -269,7 +274,9 @@ def main() -> int:
         "gamma", "second_gamma", "gamma_pair", "rb_nb", "rb_nbasins", "rb_ess",
         "rb_ok", "rb_npairs", "rb_nheld", "rb_spawn",
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
-        "trk_var_xyz", "trk_var_mass") + _FCOLS}
+        "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
+        "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne",
+        "rb_ne_mass") + _FCOLS}
     pos_rows = []
     rtk = None
 
@@ -354,6 +361,13 @@ def main() -> int:
             trk_map_mass=np.asarray(cols["trk_map_mass"]),
             trk_var_xyz=np.asarray(cols["trk_var_xyz"], dtype=float),
             trk_var_mass=np.asarray(cols["trk_var_mass"], dtype=float),
+            rb_nb_at=np.asarray(cols["rb_nb_at"], dtype=int),
+            ddpr_xyz=np.asarray(cols["ddpr_xyz"], dtype=float),
+            base_smode=np.asarray(cols["base_smode"], dtype=int),
+            base_nb=np.asarray(cols["base_nb"], dtype=int),
+            rb_reason=np.asarray(cols["rb_reason"], dtype=int),
+            rb_nb_at_ne=np.asarray(cols["rb_nb_at_ne"], dtype=int),
+            rb_ne_mass=np.asarray(cols["rb_ne_mass"], dtype=float),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -397,6 +411,13 @@ def main() -> int:
                         cols[k] = [row.copy() for row in np.asarray(old[source])]
                     else:
                         cols[k] = [np.full(3, np.nan) for _ in old_ne]
+                elif k in ("rb_nb_at", "ddpr_xyz", "rb_nb_at_ne"):
+                    arr_ = np.asarray(old[k]) if k in old.files else None
+                    if arr_ is not None and arr_.ndim == 2 and arr_.shape[0] == old_ne.size:
+                        cols[k] = list(arr_)
+                    else:   # pre-WP44 checkpoint
+                        cols[k] = [np.zeros(6, dtype=int) if k != "ddpr_xyz"
+                                   else np.full(3, np.nan) for _ in old_ne]
                 elif k in ("trk_var_xyz", "trk_var_mass"):
                     nv_ = 1 + len([v for v in os.environ.get(
                         "RBPF_TRACK_VARIANTS", "").split(",") if v.strip()])
@@ -562,6 +583,27 @@ def main() -> int:
                                      if v_ is not None else np.full(3, np.nan))
         cols["trk_map_mass"].append(float(out.get("trk_map_mass", float("nan")))
                                     if out is not None else float("nan"))
+        # WP44 diagnostic: the shared filter's own report this epoch
+        # (phase 1 runs a fix-and-hold AR before the PF starts)
+        cols["base_smode"].append(int(getattr(nav, "smode", 0)) if updated else 0)
+        cols["base_nb"].append(int(getattr(rtk, "_last_nb", 0) or 0) if updated else 0)
+        # WP44 diagnostic: why the PF had no problem this epoch
+        # (index into RB_REASONS; -1 = PF not stepped)
+        cols["rb_reason"].append(
+            RB_REASONS.index(out["reason"]) if out is not None
+            and out.get("reason") in RB_REASONS else -1)
+        from rbpf_fgo import NB_AT_THRESH
+        cols["rb_nb_at"].append(np.asarray(
+            out["nb_at"] if out is not None and "nb_at" in out
+            else [0] * len(NB_AT_THRESH), dtype=int))
+        cols["rb_nb_at_ne"].append(np.asarray(
+            out["nb_at_ne"] if out is not None and "nb_at_ne" in out
+            else [0] * len(NB_AT_THRESH), dtype=int))
+        cols["rb_ne_mass"].append(float(out.get("ne_mass", float("nan")))
+                                  if out is not None else float("nan"))
+        dp_ = out.get("ddpr_xyz") if out is not None else None
+        cols["ddpr_xyz"].append(np.asarray(dp_, dtype=float).copy()
+                                if dp_ is not None else np.full(3, np.nan))
         nvar_ = len(rtk.rbpf.cfg.track_variants)
         tv_ = out.get("trk_var") if out is not None else None
         cols["trk_var_xyz"].append(np.array(
@@ -672,6 +714,9 @@ def main() -> int:
           f"CHAL={pf.cfg.chal_d}/{pf.cfg.chal_m} "
           f"DDPR_QUAL_MAX={pf.cfg.ddpr_qual_max})")
 
+    if pf.cfg.keep:
+        print(f"WP44: keep=1 maxout_s={pf.cfg.keep_maxout_s} "
+              f"drop={sorted(pf.cfg.keep_drop)}")
     if pf.cfg.track:
         print(f"WP43: track_evals={pf.track_evals} "
               f"({pf.track_evals / max(pf.n_meas_updates, 1):.1f}/epoch) "

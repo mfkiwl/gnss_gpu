@@ -93,6 +93,8 @@ from gtsam_rtk_standalone import (
     GtsamRtkTc, _wp13m_finite_guarded_mlambda, _get_wavelengths, build_pim)
 
 _LOG2PI = math.log(2.0 * math.pi)
+# WP44: agreement-mass thresholds of the per-epoch `nb_at` diagnostic
+NB_AT_THRESH = (0.5, 0.8, 0.9, 0.95, 0.98, 0.99)
 
 
 # --------------------------------------------------------------------------
@@ -406,6 +408,24 @@ class RbpfConfig:
         # one (RBPF_TRACK=2 only; weights are untouched so they share one
         # filter): "q:floor:empty,q:floor:empty,..." -> per-epoch MAP
         # beliefs recorded for each (variant 0 = the main knobs above)
+        # ------------------------------------------------------------------
+        # WP44 basin persistence (default OFF = WP43 bit-identical). The PF
+        # used to drop a (sat,f) from every basin whenever the shared graph
+        # re-initialised its float ambiguity (graph re-seed after solve
+        # failures, outage age-out after 5 graph epochs, any fresh key).
+        # None of those is a carrier slip: with the receiver still locked,
+        # the DD integer is unchanged and the per-epoch likelihood (raw DD
+        # carrier vs the held integer) keeps testing it. With RBPF_KEEP=1
+        # only releases whose reason is in keep_drop (slip / MW / CMC /
+        # FDE-on-carrier) drop the integer, a graph re-seed keeps the
+        # basins, and an unseen (sat,f) ages out after keep_maxout_s
+        # seconds instead of `maxout` graph epochs.
+        self.keep = _env_i('RBPF_KEEP', 0)
+        self.keep_maxout_s = _env_f('RBPF_KEEP_MAXOUT_S', 10.0)
+        self.keep_drop = set(
+            x for x in os.environ.get(
+                'RBPF_KEEP_DROP', 'slip,mw,cmc,fde_cp,fde_cp_ref').split(',')
+            if x)
         self.track_variants = [(self.track_q, self.track_floor,
                                 self.track_empty)]
         for part in os.environ.get('RBPF_TRACK_VARIANTS', '').split(','):
@@ -579,10 +599,12 @@ class RbpfFgo:
 
     # -- maintenance ------------------------------------------------------
 
-    def _maintenance(self, rtk, support_sf, ep):
+    def _maintenance(self, rtk, support_sf, ep, tow=None):
         """Drop released / re-seeded / long-unseen (sat,f) from every
         particle's basin; update last-seen."""
         released = getattr(rtk, '_rbpf_released', None) or set()
+        if self.cfg.keep:
+            return self._maintenance_keep(rtk, support_sf, released, tow)
         if getattr(rtk, '_rbpf_graph_reseeded', False):
             rtk._rbpf_graph_reseeded = False
             for p in self.particles:
@@ -629,6 +651,46 @@ class RbpfFgo:
                             p.H.pop(g, None)
         if hasattr(rtk, '_rbpf_released'):
             rtk._rbpf_released = set()
+            rtk._rbpf_release_reasons = {}
+
+    def _maintenance_keep(self, rtk, support_sf, released, tow):
+        """WP44 RBPF_KEEP=1 maintenance (see RbpfConfig.keep)."""
+        cfg = self.cfg
+        reasons = getattr(rtk, '_rbpf_release_reasons', None) or {}
+        if getattr(rtk, '_rbpf_graph_reseeded', False):
+            rtk._rbpf_graph_reseeded = False
+            # the base class cleared rtk._committed: restart the feedback
+            # streaks, keep the integers
+            self.fb_streak.clear()
+            self.fb_bad.clear()
+            self.cluster_states.clear()
+            self.fb_support_bad_streak = 0
+            if cfg.spawn_enable:
+                self.no_cp_streak = max(self.no_cp_streak, cfg.spawn_outage)
+        dead = {k for k in released
+                if any(r in cfg.keep_drop for r in reasons.get(k, ('',)))}
+        if tow is not None:
+            for sf in support_sf:
+                self.last_seen[sf] = tow
+            for (s, f), t_seen in list(self.last_seen.items()):
+                if tow - t_seen > cfg.keep_maxout_s:
+                    dead.add((s, f))
+                    del self.last_seen[(s, f)]
+                    if cfg.fb_enable:
+                        self.fb_unseen_pending.add((int(s), int(f)))
+        if dead:
+            for p in self.particles:
+                for (s, f) in dead:
+                    sys_id, _ = sat2prn(int(s))
+                    g = (int(sys_id), int(f))
+                    zmap = p.H.get(g)
+                    if zmap is not None:
+                        zmap.pop(int(s), None)
+                        if len(zmap) < 2:
+                            p.H.pop(g, None)
+        if hasattr(rtk, '_rbpf_released'):
+            rtk._rbpf_released = set()
+            rtk._rbpf_release_reasons = {}
 
     # -- problem extraction -------------------------------------------------
 
@@ -1635,7 +1697,13 @@ class RbpfFgo:
             for (g, ref, j) in prob.pairs:
                 support_sf.add((ref, g[1]))
                 support_sf.add((j, g[1]))
-        self._maintenance(rtk, support_sf, ep)
+        _tow_m = None
+        if cfg.keep:
+            try:
+                _, _tow_m = time2gpst(ctx['obs'].t)
+            except (KeyError, AttributeError, TypeError, ValueError):
+                _tow_m = None
+        self._maintenance(rtk, support_sf, ep, _tow_m)
 
         out = {'ep': ep, 'ok': prob.ok, 'reason': prob.reason,
                'fix': False, 'gamma': 0.0, 'nb': 0, 'ess': float('nan'),
@@ -2018,6 +2086,34 @@ class RbpfFgo:
                 gamma_min_used = min(pair_mass[pi_] for pi_ in used_pairs)
         out['nb'] = int(len(used_pairs))
         out['gamma_pair'] = float(gamma_min_used)
+        # WP44 diagnostic: MAP pairs whose agreement mass clears each of
+        # NB_AT_THRESH (offline FIX-rule studies; nothing reads it)
+        out['nb_at'] = ([int(sum(1 for am in pair_mass.values() if am > t))
+                         for t in NB_AT_THRESH]
+                        if dd_map is not None else [0] * len(NB_AT_THRESH))
+        out['ddpr_xyz'] = ddpr_pos
+        # WP44 diagnostic: the same counts for the best NON-EMPTY basin
+        # with the mass renormalised over the non-empty particles, plus
+        # that non-empty mass (the flat 'no integer' hypothesis can hold
+        # most of the mass through a multipath burst while every integer
+        # hypothesis agrees)
+        ne_idx = [i_ for i_, p_ in enumerate(self.particles) if p_.H]
+        ne_mass = float(sum(w[i_] for i_ in ne_idx))
+        out['ne_mass'] = ne_mass
+        out['nb_at_ne'] = [0] * len(NB_AT_THRESH)
+        ne_ranked = [(bid, m_) for bid, m_ in ranked if len(bid) != 0]
+        if ne_ranked and ne_mass > 0:
+            dd_ne = self._pair_dd(rep[ne_ranked[0][0]], prob)
+            dd_l = {i_: self._pair_dd(self.particles[i_].H, prob)
+                    for i_ in ne_idx}
+            masses_ne = []
+            for pi_ in np.where(np.isfinite(dd_ne))[0]:
+                am = sum(float(w[i_]) for i_ in ne_idx
+                         if np.isfinite(dd_l[i_][pi_])
+                         and int(dd_l[i_][pi_]) == int(dd_ne[pi_]))
+                masses_ne.append(am / ne_mass)
+            out['nb_at_ne'] = [int(sum(1 for am in masses_ne if am > t))
+                               for t in NB_AT_THRESH]
         xz = None
         if len(used_pairs) >= cfg.min_fix_nb:
             # sub-basin over the agreed pairs only
@@ -2581,6 +2677,7 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
         self.rbpf_run_base_ar = _env_i('RBPF_BASE_AR', 1)
         self._rbpf_ctx = None
         self._rbpf_released = set()
+        self._rbpf_release_reasons = {}
         self._rbpf_graph_reseeded = False
         self._rbpf_last = None
         self._rbpf_witness_prob = None
@@ -2646,6 +2743,8 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
     # that (sat,f) in every particle's basin
     def _release_ambiguity(self, sat, freq, reason=''):
         self._rbpf_released.add((int(sat), int(freq)))
+        self._rbpf_release_reasons.setdefault(
+            (int(sat), int(freq)), []).append(str(reason))
         return super()._release_ambiguity(sat, freq, reason=reason)
 
     # a full graph re-seed (warm reset / transition) clears all basins
