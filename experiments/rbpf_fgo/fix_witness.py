@@ -58,6 +58,36 @@ def epoch_stats(rows, x, pos0, thr):
     }
 
 
+def afv_features(npz_path, thr=0.15):
+    """Truth-free per-npz-row ambiguity-function features at the reported
+    position: (n rows, inlier fraction), cached next to the run as
+    runN_afv<thr>.npz. Rows without a dump get n = 0, frac = nan."""
+    npz_path = Path(npz_path)
+    cache = npz_path.with_name(f"{npz_path.stem}_afv{thr:g}.npz")
+    if cache.exists() and cache.stat().st_mtime >= npz_path.stat().st_mtime:
+        c = np.load(cache)
+        return c["n"], c["frac"]
+    d = np.load(npz_path)
+    z = np.load(npz_path.with_name(npz_path.stem + "_rows.npz"))
+    sol = np.asarray(d["sol_xyz"], dtype=float)
+    rows, eps = z["rows"], z["epochs"]
+    rows = rows[np.argsort(rows[:, 0], kind="stable")]
+    idx = rows[:, 0].astype(int)
+    n = np.zeros(len(sol), dtype=int)
+    frac = np.full(len(sol), np.nan)
+    for e in eps:
+        i = int(e[0])
+        a, b = np.searchsorted(idx, i), np.searchsorted(idx, i, side="right")
+        if b <= a or not np.all(np.isfinite(sol[i])):
+            continue
+        r = rows[a:b]
+        bb = r[:, B0] - r[:, JX:JZ + 1] @ (sol[i] - e[1:4]) / r[:, LAM]
+        n[i] = b - a
+        frac[i] = float(np.mean(np.abs(bb - np.round(bb)) < thr))
+    np.savez(cache, n=n, frac=frac)
+    return n, frac
+
+
 def load_run(results, prefix, run, data_root, thr):
     d = np.load(results / f"{prefix}_r{run}" / f"run{run}.npz")
     z = np.load(results / f"{prefix}_r{run}" / f"run{run}_rows.npz")
@@ -77,7 +107,7 @@ def load_run(results, prefix, run, data_root, thr):
         x = sol[i]
         if not (np.all(np.isfinite(x)) and np.all(np.isfinite(R[i]))):
             continue
-        st = epoch_stats(rows[starts[k]:ends[k], 1:], x, e[1:4], thr)
+        st = epoch_stats(rows[starts[k]:ends[k]], x, e[1:4], thr)
         st.update(i=i, err=float(np.linalg.norm(x - R[i])), fix=bool(fix[i]),
                   nb12=int(np.asarray(d["rb_nb_at"])[i, 3]))
         out.append(st)

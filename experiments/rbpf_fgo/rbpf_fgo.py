@@ -397,6 +397,14 @@ class RbpfConfig:
         self.track_empty = _env_i('RBPF_TRACK_EMPTY', 0)
         # drop every belief after a data gap longer than this [s]
         self.track_gap_s = _env_f('RBPF_TRACK_GAP_S', 2.0)
+        # WP45 (RBPF_TRACK=1 only): for this long after a belief reset
+        # (PIM break / data gap, e.g. a tunnel) every move is scored
+        # against the loose float prior, as with RBPF_TRACK=2, while the
+        # beliefs keep updating. Without it the first basin adopted after
+        # the reset builds a cm belief and out-scores a later fresh
+        # adoption by ~3 ln(1 m / 1 cm) nats per epoch (WP43: a 0.72 m
+        # wrong basin locked after the run1 tunnel). 0 = off.
+        self.track_probation_s = _env_f('RBPF_TRACK_PROBATION_S', 0.0)
         # Reported position: 0 = WP18 (FIX: epoch-local LS, FLOAT: shared
         # float); 1 = FIX only, mass-weighted tracked belief of the
         # particles carrying every reported integer; 2 = every epoch whose
@@ -2405,8 +2413,13 @@ class RbpfFgo:
         if reset:
             for p in self.particles:
                 p.state = None
+            self._track_reset_tow = getattr(self, '_track_last_tow', None)
         if odo is None:
             odo = np.zeros(3)
+        rt = getattr(self, '_track_reset_tow', None)
+        probation = (cfg.track_probation_s > 0 and rt is not None
+                     and getattr(self, '_track_last_tow', rt) - rt
+                     < cfg.track_probation_s)
 
         nb = len(prob.pairs)
         nan_dd = np.full(nb, np.nan)
@@ -2433,7 +2446,8 @@ class RbpfFgo:
 
         plans = []
         for p in self.particles:
-            pred = self._track_predict(p.state, odo, ep)
+            pred = (None if probation
+                    else self._track_predict(p.state, odo, ep))
             sk = id(p.state) if pred is not None else None
             fk, fp = (sk, pred)
             nk, npred = ((sk, pred) if cfg.track_inherit else (None, None))

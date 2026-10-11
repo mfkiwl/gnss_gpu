@@ -14,6 +14,11 @@ only decides which epochs are labelled FIX:
           or  base_smode == 4 and base_nb >= B     shared filter's own LAMBDA
                                                   fix (phase 1 fix-and-hold,
                                                   phase 2 ratio test)
+          or  afv_frac >= A and afv_n >= AN       (--afv) ambiguity function
+                                                  at the reported position:
+                                                  share of the epoch's DD
+                                                  carrier rows within 0.15
+                                                  cycle of an integer
           or  witness FIX and |pos - witness pos| < D
                                                   an independent real-time
                                                   RTK engine (--witness-pos,
@@ -42,6 +47,7 @@ import numpy as np
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
 from fix_rules import errors
+from fix_witness import afv_features
 from rbpf_fgo import NB_AT_THRESH
 
 GRID = list(itertools.product(
@@ -53,6 +59,8 @@ GRID = list(itertools.product(
     (5, 9, 99),           # B (99 = off)
 ))
 WIT_D = (0.0, 0.05, 0.1, 0.2)  # witness agreement radius (0 = off)
+AFV = ((2.0, 0), (0.95, 8), (0.95, 10), (0.95, 12), (0.9, 12),
+       (0.9, 16))                # (A, AN); A > 1 = off
 
 
 GUARD_M = float(__import__("os").environ.get("FIX_RULE_GUARD_M", "5.0"))
@@ -76,7 +84,7 @@ def load_witness(path, d):
     return fx, xyz
 
 
-def prepare(d, run, data_root, witness=None):
+def prepare(d, run, data_root, witness=None, afv=None):
     e, n = errors(d, run, data_root)
     ok = np.isfinite(e) & (np.asarray(d["smode"]) != 6)
     # the PF's own FIX-output guards (RBPF_FIX_MAX_DPR = 5 m and the
@@ -106,15 +114,20 @@ def prepare(d, run, data_root, witness=None):
             "base_fix": np.asarray(d["base_smode"]) == 4,
             "base_nb": np.asarray(d["base_nb"]),
             "shipped": (np.asarray(d["smode"]) == 4) & (np.asarray(d["rb_nb"]) >= 12),
-            "wit_d": wit_d}
+            "wit_d": wit_d,
+            "afv_n": afv[0] if afv is not None else np.zeros(len(e), int),
+            "afv_frac": afv[1] if afv is not None else np.full(len(e), np.nan)}
 
 
-def apply(p, t, f, t2, f2, m, b, wd=0.0):
+def apply(p, t, f, t2, f2, m, b, wd=0.0, av=2.0, an=0):
     fx = p["pf_ok"] & (p["nb_at"][:, t] >= f)
     fx |= p["pf_ok"] & (p["nb_at_ne"][:, t2] >= f2) & (p["ne_mass"] >= m)
     fx |= p["base_fix"] & (p["base_nb"] >= b)
     if wd > 0:
         fx |= p["wit_d"] < wd
+    if av <= 1.0:
+        with np.errstate(invalid="ignore"):
+            fx |= p["pf_ok"] & (p["afv_frac"] >= av) & (p["afv_n"] >= an)
     return fx & p["ok"]
 
 
@@ -126,6 +139,7 @@ def score(p, fx):
 def describe(g):
     t, f, t2, f2, m, b = g[:6]
     wd = g[6] if len(g) > 6 else 0.0
+    av, an = (g[7], g[8]) if len(g) > 8 else (2.0, 0)
     s = f"nb_at[{NB_AT_THRESH[t]}]>={f}"
     if f2 < 99:
         s += f" | nb_at_ne[{NB_AT_THRESH[t2]}]>={f2}&ne_mass>={m}"
@@ -133,6 +147,8 @@ def describe(g):
         s += f" | base_nb>={b}"
     if wd > 0:
         s += f" | witness FIX within {wd} m"
+    if av <= 1.0:
+        s += f" | afv_frac>={av}&n>={an}"
     return s
 
 
@@ -144,6 +160,9 @@ def main():
     ap.add_argument("--cap", type=float, default=0.7)
     ap.add_argument("--fixed", default=None,
                     help="t_idx,F,t2_idx,F2,M,B[,D]: score this rule on every run")
+    ap.add_argument("--afv", action="store_true",
+                    help="add the ambiguity-function term (needs runN_rows.npz "
+                         "from RBPF_DUMP_ROWS=1 runs)")
     ap.add_argument("--witness-pos", default=None,
                     help="independent RTK .pos per run, '{run}' is replaced "
                          "(adds the witness-agreement radius D to the grid)")
@@ -156,7 +175,8 @@ def main():
                 d = dict(np.load(path))
                 wit = (load_witness(a.witness_pos.format(run=r), d)
                        if a.witness_pos else None)
-                lst.append(prepare(d, r, a.data_root, wit))
+                afv = afv_features(path) if a.afv else None
+                lst.append(prepare(d, r, a.data_root, wit, afv))
 
     def report(r, g, tag):
         rows = []
@@ -177,7 +197,9 @@ def main():
         vals = a.fixed.split(",")
         g = (int(vals[0]), int(vals[1]), int(vals[2]), int(vals[3]),
              float(vals[4]), int(vals[5]),
-             float(vals[6]) if len(vals) > 6 else 0.0)
+             float(vals[6]) if len(vals) > 6 else 0.0,
+             float(vals[7]) if len(vals) > 7 else 2.0,
+             int(vals[8]) if len(vals) > 8 else 0)
         print("rule:", describe(g))
         for r, lst in runs.items():
             if lst:
@@ -188,8 +210,9 @@ def main():
         if not runs[held] or not train:
             continue
         best = None
-        grid = ([g + (wd,) for g in GRID for wd in WIT_D] if a.witness_pos
-                else GRID)
+        wds = WIT_D if a.witness_pos else (0.0,)
+        afvs = AFV if a.afv else ((2.0, 0),)
+        grid = [g + (wd,) + av for g in GRID for wd in wds for av in afvs]
         for g in grid:
             tot = 0.0
             feasible = True
