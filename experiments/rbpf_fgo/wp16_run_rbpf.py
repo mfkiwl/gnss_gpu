@@ -123,6 +123,44 @@ def _set_shared_filter_env(args):
     os.environ['RBPF_BASE_AR'] = str(args.run_base_ar)
 
 
+def _override_bands(sigs, sigsb, sig_map_rov, sig_map_base, spec, nf,
+                    required):
+    """Re-pick the bands of the systems named in `spec` ('C:2,6,5;G:1,2,5',
+    RINEX system letters) in the given order, keeping only bands that both
+    receivers provide for every required observation type ('R:-' drops
+    the system)."""
+    from cssrlib.gnss import char2sys
+    from gnss_fgo.utils.sig_autodetect import _group_by_band
+    for part in spec.split(";"):
+        if not part.strip():
+            continue
+        letter, bands = part.split(":")
+        sys_id = char2sys(letter.strip())
+        if bands.strip() == "-":     # drop the system
+            sigs = [x for x in sigs if x.sys != sys_id]
+            sigsb = [x for x in sigsb if x.sys != sys_id]
+            print(f"WP45: system {letter} dropped")
+            continue
+        order = [int(b) for b in bands.split(",")]
+        if sys_id not in sig_map_rov or sys_id not in sig_map_base:
+            continue
+        rov = {t: _group_by_band(sig_map_rov[sys_id], t) for t in required}
+        base = {t: _group_by_band(sig_map_base[sys_id], t) for t in required}
+        ok = [b for b in order
+              if all(b in rov[t] and b in base[t] for t in required)][:nf]
+        if len(ok) < nf:
+            raise SystemExit(f"--band-priority {part}: only bands {ok} are "
+                             f"common to rover and base")
+        sigs = [x for x in sigs if x.sys != sys_id]
+        sigsb = [x for x in sigsb if x.sys != sys_id]
+        for b in ok:
+            for t in required:
+                sigs.append(rov[t][b])
+                sigsb.append(base[t][b])
+        print(f"WP45: system {letter} bands {ok}")
+    return sigs, sigsb
+
+
 # WP44: `rb_reason` codes (EpochProblem.reason)
 RB_REASONS = ("", "no_joint_marginal", "nonfinite_pos", "no_pairs",
               "nonfinite_marginal", "no_rows")
@@ -186,6 +224,12 @@ def main() -> int:
                          "that --dr-fill bridges")
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
+    ap.add_argument("--band-priority", default="",
+                    help="WP45: per-system RINEX band order overriding the "
+                         "auto-detect L1>L2>L5 priority, e.g. 'C:2,6,5' picks "
+                         "BeiDou B1I+B3I(+B2a): B1C (band 1) exists on BDS-3 "
+                         "only, so f0&f1 = B1C+B1I keeps ~23%% of the tracked "
+                         "BeiDou satellites on Tokyo run1")
     ap.add_argument("--env", action="append", default=[],
                     help="extra KEY=VAL env overrides (e.g. the WP13r run1 "
                          "recovery flag set), applied after the base config")
@@ -221,6 +265,10 @@ def main() -> int:
     sigs, sigsb = auto_detect_signals(
         dec.sig_map, decb.sig_map, max_freq=args.nf,
         required=(uTYP.C, uTYP.L, uTYP.S))
+    if args.band_priority:
+        sigs, sigsb = _override_bands(sigs, sigsb, dec.sig_map, decb.sig_map,
+                                      args.band_priority, args.nf,
+                                      (uTYP.C, uTYP.L, uTYP.S))
     rov_picks_by_sys = {}
     for s in sigs:
         rov_picks_by_sys.setdefault(s.sys, set()).add(int(s.sig) // 100)

@@ -2374,6 +2374,12 @@ class RbpfFgo:
             for f in range(min(nav.nf, obs_sd.L.shape[1])):
                 if obs_sd.L[i, f] != 0 and obs_sd.P[i, f] != 0:
                     groups.setdefault((int(sys_id), int(f)), []).append(i)
+        if os.environ.get('RBPF_DBG_SATS') and self.n_steps % 200 == 1:
+            print('DBG_SATS nf', nav.nf, obs_sd.L.shape, [(sat2prn(int(s_))[0], sat2prn(int(s_))[1],
+                                round(float(np.rad2deg(el[i_])), 1),
+                                tuple(int(obs_sd.L[i_, f_] != 0)
+                                      for f_ in range(obs_sd.L.shape[1])))
+                               for i_, s_ in enumerate(sat)])
         rows = []
         for g in sorted(groups):
             mem = groups[g]
