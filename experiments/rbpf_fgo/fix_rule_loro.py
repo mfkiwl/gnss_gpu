@@ -161,8 +161,8 @@ def main():
     ap.add_argument("--fixed", default=None,
                     help="t_idx,F,t2_idx,F2,M,B[,D]: score this rule on every run")
     ap.add_argument("--afv", action="store_true",
-                    help="add the ambiguity-function term (needs runN_rows.npz "
-                         "from RBPF_DUMP_ROWS=1 runs)")
+                    help="add the ambiguity-function term (needs RBPF_AFV=1 "
+                         "runs, or runN_rows.npz from RBPF_DUMP_ROWS=1)")
     ap.add_argument("--witness-pos", default=None,
                     help="independent RTK .pos per run, '{run}' is replaced "
                          "(adds the witness-agreement radius D to the grid)")
@@ -175,7 +175,11 @@ def main():
                 d = dict(np.load(path))
                 wit = (load_witness(a.witness_pos.format(run=r), d)
                        if a.witness_pos else None)
-                afv = afv_features(path) if a.afv else None
+                afv = None
+                if a.afv:   # in-run RBPF_AFV=1 columns, else the row dump
+                    afv = ((d["rb_afv_n"], d["rb_afv_frac"])
+                           if "rb_afv_n" in d and np.any(d["rb_afv_n"] > 0)
+                           else afv_features(path))
                 lst.append(prepare(d, r, a.data_root, wit, afv))
 
     def report(r, g, tag):

@@ -446,6 +446,12 @@ class RbpfConfig:
         # basin's integer and agreement mass, for offline FIX-validation
         # studies (independent-satellite / ambiguity-function checks).
         self.dump_rows = _env_i('RBPF_DUMP_ROWS', 0)
+        # WP45 ambiguity-function label feature: share of the epoch's DD
+        # carrier rows within afv_thr cycle of an integer at the reported
+        # position (out['afv_n'], out['afv_frac']; nothing in the filter
+        # reads it -- the FIX-label rule does). 0 = not computed.
+        self.afv = _env_i('RBPF_AFV', 0)
+        self.afv_thr = _env_f('RBPF_AFV_THR', 0.15)
 
 
 # --------------------------------------------------------------------------
@@ -2322,8 +2328,17 @@ class RbpfFgo:
             out['pos_wp18'] = out['pos']
             out['pos'] = np.asarray(out['trk_map'], dtype=float).copy()
 
+        rows_ = None
+        if cfg.dump_rows or cfg.afv:
+            rows_ = self._dump_rows(rtk, ctx, prob, map_H, pair_mass)
+        if cfg.afv and rows_ is not None and len(rows_):
+            x_ = np.asarray(out['pos'], dtype=float)
+            b_ = rows_[:, 10] - rows_[:, 7:10] @ (x_ - prob.pos) / rows_[:, 6]
+            out['afv_n'] = int(len(rows_))
+            out['afv_frac'] = float(np.mean(np.abs(b_ - np.round(b_))
+                                            < cfg.afv_thr))
         if cfg.dump_rows:
-            out['rows'] = self._dump_rows(rtk, ctx, prob, map_H, pair_mass)
+            out['rows'] = rows_
             out['fix_xyz'] = (np.asarray(xz, dtype=float).copy()
                               if xz is not None else None)
             out['rows_pos0'] = np.asarray(prob.pos, dtype=float).copy()

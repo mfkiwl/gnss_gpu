@@ -276,7 +276,7 @@ def main() -> int:
         "rb_ok", "rb_npairs", "rb_nheld", "rb_spawn",
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
         "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
-        "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne",
+        "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
         "rb_ne_mass") + _FCOLS}
     pos_rows = []
     rtk = None
@@ -369,6 +369,8 @@ def main() -> int:
             rb_reason=np.asarray(cols["rb_reason"], dtype=int),
             rb_nb_at_ne=np.asarray(cols["rb_nb_at_ne"], dtype=int),
             rb_ne_mass=np.asarray(cols["rb_ne_mass"], dtype=float),
+            rb_afv_n=np.asarray(cols["rb_afv_n"], dtype=int),
+            rb_afv_frac=np.asarray(cols["rb_afv_frac"], dtype=float),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -611,6 +613,10 @@ def main() -> int:
             else [0] * len(NB_AT_THRESH), dtype=int))
         cols["rb_ne_mass"].append(float(out.get("ne_mass", float("nan")))
                                   if out is not None else float("nan"))
+        # WP45 ambiguity-function label feature (RBPF_AFV=1)
+        cols["rb_afv_n"].append(int(out.get("afv_n", 0)) if out is not None else 0)
+        cols["rb_afv_frac"].append(float(out.get("afv_frac", float("nan")))
+                                   if out is not None else float("nan"))
         dp_ = out.get("ddpr_xyz") if out is not None else None
         cols["ddpr_xyz"].append(np.asarray(dp_, dtype=float).copy()
                                 if dp_ is not None else np.full(3, np.nan))
