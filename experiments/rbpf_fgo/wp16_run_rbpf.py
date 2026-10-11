@@ -161,6 +161,32 @@ def _override_bands(sigs, sigsb, sig_map_rov, sig_map_base, spec, nf,
     return sigs, sigsb
 
 
+def _rule_fix(rule, out, cols, ecef, flt_ecef, guard_m=5.0):
+    """WP45 causal FIX label for this epoch (fix_rule_loro.apply on one
+    row): PF agreement counts, the non-empty agreement with its mass, or
+    the shared filter's own LAMBDA fix, behind the PF output guards
+    (reported position within guard_m of the code-only DDPR position and
+    the float / DDPR / fix vote 6 m / 3.5 m)."""
+    t, f, t2, f2, m, b = rule
+    base_fix = cols["base_smode"][-1] == 4 and cols["base_nb"][-1] >= b
+    pf = False
+    if out is not None and out.get("ok"):
+        nb_at = out.get("nb_at") or [0] * 6
+        nb_ne = out.get("nb_at_ne") or [0] * 6
+        ne_mass = float(out.get("ne_mass", float("nan")))
+        pf = (nb_at[int(t)] >= f
+              or (nb_ne[int(t2)] >= f2 and ne_mass >= m))
+    if not (pf or base_fix):
+        return False
+    ddpr = cols["ddpr_xyz"][-1]
+    if np.all(np.isfinite(ddpr)):
+        d_fix = float(np.linalg.norm(np.asarray(ecef) - ddpr))
+        d_flt = float(np.linalg.norm(np.asarray(flt_ecef) - ddpr))
+        if d_fix > guard_m or (d_flt > 6.0 and d_fix > 3.5):
+            return False
+    return True
+
+
 # WP44: `rb_reason` codes (EpochProblem.reason)
 RB_REASONS = ("", "no_joint_marginal", "nonfinite_pos", "no_pairs",
               "nonfinite_marginal", "no_rows")
@@ -224,6 +250,11 @@ def main() -> int:
                          "that --dr-fill bridges")
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
+    ap.add_argument("--fix-rule", default="",
+                    help="WP45 causal FIX label t_idx,F,t2_idx,F2,M,B (the "
+                         "fix_rule_loro.py grammar): the .pos status and the "
+                         "npz `rule_fix` column use it; positions and the "
+                         "PF are unchanged. Empty = the PF's own fix flag")
     ap.add_argument("--band-priority", default="",
                     help="WP45: per-system RINEX band order overriding the "
                          "auto-detect L1>L2>L5 priority, e.g. 'C:2,6,5' picks "
@@ -325,7 +356,9 @@ def main() -> int:
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
         "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
         "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
-        "rb_ne_mass") + _FCOLS}
+        "rb_ne_mass", "rule_fix") + _FCOLS}
+    fix_rule = (tuple(float(x) for x in args.fix_rule.split(","))
+                if args.fix_rule else None)
     pos_rows = []
     rtk = None
 
@@ -419,6 +452,7 @@ def main() -> int:
             rb_ne_mass=np.asarray(cols["rb_ne_mass"], dtype=float),
             rb_afv_n=np.asarray(cols["rb_afv_n"], dtype=int),
             rb_afv_frac=np.asarray(cols["rb_afv_frac"], dtype=float),
+            rule_fix=np.asarray(cols["rule_fix"], dtype=int),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -721,8 +755,12 @@ def main() -> int:
                        ("rb_shadow_n", "shadow_n")):
             cols[k].append(float(out.get(ok_, float("nan")))
                            if out is not None else float("nan"))
-        pos_rows.append((week, tow, ecef, 4 if smode == 4 else 5,
-                         int(np.sum(nav.vsat[:, 0]))))
+        rule_ok = (_rule_fix(fix_rule, out, cols, ecef, flt_ecef)
+                   if fix_rule is not None and smode != 6 else False)
+        cols["rule_fix"].append(int(rule_ok))
+        q_ = (4 if rule_ok else 5) if fix_rule is not None else (
+            4 if smode == 4 else 5)
+        pos_rows.append((week, tow, ecef, q_, int(np.sum(nav.vsat[:, 0]))))
 
         if out is not None and any(a <= tow <= b for a, b in trace_windows):
             for rank, tb in enumerate(out['top']):
