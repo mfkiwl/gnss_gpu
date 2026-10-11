@@ -432,6 +432,12 @@ class RbpfConfig:
             if part.strip():
                 q_, f_, e_ = part.split(':')
                 self.track_variants.append((float(q_), float(f_), int(e_)))
+        # WP45 diagnostic (default off): record every phase-observed DD
+        # row of the epoch (all non-GLONASS satellites the receiver tracks,
+        # not only the shared filter's ambiguity states) with the MAP
+        # basin's integer and agreement mass, for offline FIX-validation
+        # studies (independent-satellite / ambiguity-function checks).
+        self.dump_rows = _env_i('RBPF_DUMP_ROWS', 0)
 
 
 # --------------------------------------------------------------------------
@@ -2068,6 +2074,7 @@ class RbpfFgo:
         # posterior-mass version of partial AR. Empty/undefined
         # particles count AGAINST agreement.
         dd_map = self._pair_dd(map_H, prob) if map_H else None
+        pair_mass = {}
         used_pairs = []
         gamma_min_used = 0.0
         if dd_map is not None:
@@ -2307,9 +2314,80 @@ class RbpfFgo:
             out['pos_wp18'] = out['pos']
             out['pos'] = np.asarray(out['trk_map'], dtype=float).copy()
 
+        if cfg.dump_rows:
+            out['rows'] = self._dump_rows(rtk, ctx, prob, map_H, pair_mass)
+            out['fix_xyz'] = (np.asarray(xz, dtype=float).copy()
+                              if xz is not None else None)
+            out['rows_pos0'] = np.asarray(prob.pos, dtype=float).copy()
+
         self.last = out
         self.step_seconds += time.perf_counter() - t0
         return out
+
+    def _dump_rows(self, rtk, ctx, prob, map_H, pair_mass):
+        """WP45 diagnostic rows: one per phase-observed non-GLONASS DD
+        (sys, f, ref = highest-elevation satellite of the group).
+
+        b0 is the DD carrier minus the DD geometric range at the shared
+        float position prob.pos, in cycles, so at any position x the
+        ambiguity-free fractional residual is frac(b0 - J.(x - pos)/lam).
+        held = MAP-basin DD integer (nan when the basin does not cover the
+        pair), mass = its agreement mass (nan when the pair is not one of
+        the PF's pairs, i.e. not a shared-filter ambiguity state)."""
+        nav = rtk.nav
+        sat = ctx['sat']
+        el = ctx['el']
+        iu, ir, rs, rsb = ctx['iu'], ctx['ir'], ctx['rs'], ctx['rsb']
+        obs_sd = ctx['obs_sd']
+        pos = np.asarray(prob.pos, dtype=float)
+        rb = np.array(nav.rb, dtype=float)
+        pair_idx = {(g, r, j): pi for pi, (g, r, j) in enumerate(prob.pairs)}
+        groups = {}
+        for i in range(len(sat)):
+            s = int(sat[i])
+            sys_id, _ = sat2prn(s)
+            if sys_id == uGNSS.GLO:
+                continue
+            for f in range(min(nav.nf, obs_sd.L.shape[1])):
+                if obs_sd.L[i, f] != 0 and obs_sd.P[i, f] != 0:
+                    groups.setdefault((int(sys_id), int(f)), []).append(i)
+        rows = []
+        for g in sorted(groups):
+            mem = groups[g]
+            if len(mem) < 2:
+                continue
+            ref_s = self.prev_ref.get(g)
+            ri = next((i for i in mem if int(sat[i]) == ref_s), None)
+            if ri is None:
+                ri = mem[int(np.argmax([el[i] for i in mem]))]
+            ref = int(sat[ri])
+            lams = _get_wavelengths(nav, obs_sd, ref)
+            f = g[1]
+            if f >= len(lams) or not np.isfinite(lams[f]) or lams[f] <= 0:
+                continue
+            lam = float(lams[f])
+            r_ref, e_ref = geodist(rs[iu[ri], :3], pos)
+            rb_ref, _ = geodist(rsb[ir[ri], :3], rb)
+            zmap = map_H.get(g) if map_H else None
+            for ji in mem:
+                if ji == ri:
+                    continue
+                j = int(sat[ji])
+                r_j, e_j = geodist(rs[iu[ji], :3], pos)
+                rb_j, _ = geodist(rsb[ir[ji], :3], rb)
+                ddrange = (r_ref - rb_ref) - (r_j - rb_j)
+                Jrow = -np.asarray(e_ref, dtype=float) + np.asarray(e_j, dtype=float)
+                b0 = (float(obs_sd.L[ri, f] - obs_sd.L[ji, f]) * lam - ddrange) / lam
+                ddpr = float(obs_sd.P[ri, f] - obs_sd.P[ji, f]) - ddrange
+                held = np.nan
+                if zmap is not None and ref in zmap and j in zmap:
+                    held = float(zmap[ref] - zmap[j])
+                pi = pair_idx.get((g, ref, j))
+                mass = float(pair_mass.get(pi, np.nan)) if pi is not None else np.nan
+                rows.append((g[0], f, ref, j, float(el[ri]), float(el[ji]), lam,
+                             Jrow[0], Jrow[1], Jrow[2], b0, ddpr, held, mass,
+                             1.0 if pi is not None else 0.0))
+        return np.asarray(rows, dtype=float).reshape(-1, 15)
 
     def _moves_tracked(self, prob, ctx, ep, H_cons, cand_H, spawn_H,
                        lp_nb, lp_b):

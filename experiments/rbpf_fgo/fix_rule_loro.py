@@ -14,6 +14,12 @@ only decides which epochs are labelled FIX:
           or  base_smode == 4 and base_nb >= B     shared filter's own LAMBDA
                                                   fix (phase 1 fix-and-hold,
                                                   phase 2 ratio test)
+          or  witness FIX and |pos - witness pos| < D
+                                                  an independent real-time
+                                                  RTK engine (--witness-pos,
+                                                  e.g. libgnss++ KF-RTK) has
+                                                  a FIX that agrees with the
+                                                  PF's own reported position
 
 Every label also passes the PF's own FIX-output guards (reported position
 within 5 m of the code-only DDPR position, and the float / DDPR / fix vote).
@@ -46,12 +52,31 @@ GRID = list(itertools.product(
     (0.1, 0.3),           # M
     (5, 9, 99),           # B (99 = off)
 ))
+WIT_D = (0.0, 0.05, 0.1, 0.2)  # witness agreement radius (0 = off)
 
 
 GUARD_M = float(__import__("os").environ.get("FIX_RULE_GUARD_M", "5.0"))
 
 
-def prepare(d, run, data_root):
+def load_witness(path, d):
+    """RTKLIB/libgnss++ .pos (GPS week/TOW, ECEF, status 4 = FIX) aligned
+    to the npz rows by TOW; returns (fix mask, ECEF)."""
+    with open(path) as fh:
+        A = np.array([[float(x) for x in ln.split()[:9]] for ln in fh
+                      if ln.strip() and not ln.startswith("%")])
+    at = {round(float(t), 1): k for k, t in enumerate(A[:, 1])}
+    tow = np.asarray(d["tow"], dtype=float)
+    fx = np.zeros(len(tow), dtype=bool)
+    xyz = np.full((len(tow), 3), np.nan)
+    for i, t in enumerate(tow):
+        k = at.get(round(float(t), 1))
+        if k is not None:
+            fx[i] = A[k, 8] == 4
+            xyz[i] = A[k, 2:5]
+    return fx, xyz
+
+
+def prepare(d, run, data_root, witness=None):
     e, n = errors(d, run, data_root)
     ok = np.isfinite(e) & (np.asarray(d["smode"]) != 6)
     # the PF's own FIX-output guards (RBPF_FIX_MAX_DPR = 5 m and the
@@ -66,6 +91,13 @@ def prepare(d, run, data_root):
     guard = ~(has & ((d_fix > GUARD_M) | ((d_flt > 6.0) & (d_fix > 3.5))))
     if GUARD_M <= 0:
         guard = np.ones(len(e), dtype=bool)
+    # distance from the reported position to an agreeing witness FIX
+    # (inf where the witness has no FIX); DR-filled epochs never qualify
+    wit_d = np.full(len(e), np.inf)
+    if witness is not None:
+        wfx, wxyz = witness
+        dist = np.linalg.norm(sol - wxyz, axis=1)
+        wit_d = np.where(wfx & np.isfinite(dist), dist, np.inf)
     return {"e": e, "n": n, "ok": ok & guard,
             "pf_ok": np.asarray(d["rb_ok"]) == 1,
             "nb_at": np.asarray(d["rb_nb_at"]),
@@ -73,13 +105,16 @@ def prepare(d, run, data_root):
             "ne_mass": np.asarray(d["rb_ne_mass"]),
             "base_fix": np.asarray(d["base_smode"]) == 4,
             "base_nb": np.asarray(d["base_nb"]),
-            "shipped": (np.asarray(d["smode"]) == 4) & (np.asarray(d["rb_nb"]) >= 12)}
+            "shipped": (np.asarray(d["smode"]) == 4) & (np.asarray(d["rb_nb"]) >= 12),
+            "wit_d": wit_d}
 
 
-def apply(p, t, f, t2, f2, m, b):
+def apply(p, t, f, t2, f2, m, b, wd=0.0):
     fx = p["pf_ok"] & (p["nb_at"][:, t] >= f)
     fx |= p["pf_ok"] & (p["nb_at_ne"][:, t2] >= f2) & (p["ne_mass"] >= m)
     fx |= p["base_fix"] & (p["base_nb"] >= b)
+    if wd > 0:
+        fx |= p["wit_d"] < wd
     return fx & p["ok"]
 
 
@@ -89,12 +124,15 @@ def score(p, fx):
 
 
 def describe(g):
-    t, f, t2, f2, m, b = g
+    t, f, t2, f2, m, b = g[:6]
+    wd = g[6] if len(g) > 6 else 0.0
     s = f"nb_at[{NB_AT_THRESH[t]}]>={f}"
     if f2 < 99:
         s += f" | nb_at_ne[{NB_AT_THRESH[t2]}]>={f2}&ne_mass>={m}"
     if b < 99:
         s += f" | base_nb>={b}"
+    if wd > 0:
+        s += f" | witness FIX within {wd} m"
     return s
 
 
@@ -105,14 +143,20 @@ def main():
     ap.add_argument("--results", type=Path, default=_HERE / "results")
     ap.add_argument("--cap", type=float, default=0.7)
     ap.add_argument("--fixed", default=None,
-                    help="t_idx,F,t2_idx,F2,M,B: score this rule on every run")
+                    help="t_idx,F,t2_idx,F2,M,B[,D]: score this rule on every run")
+    ap.add_argument("--witness-pos", default=None,
+                    help="independent RTK .pos per run, '{run}' is replaced "
+                         "(adds the witness-agreement radius D to the grid)")
     a = ap.parse_args()
     runs = {1: [], 2: [], 3: []}
     for pre in a.prefixes:
         for r, lst in runs.items():
             path = a.results / f"{pre}_r{r}" / f"run{r}.npz"
             if path.exists():
-                lst.append(prepare(dict(np.load(path)), r, a.data_root))
+                d = dict(np.load(path))
+                wit = (load_witness(a.witness_pos.format(run=r), d)
+                       if a.witness_pos else None)
+                lst.append(prepare(d, r, a.data_root, wit))
 
     def report(r, g, tag):
         rows = []
@@ -132,7 +176,8 @@ def main():
     if a.fixed:
         vals = a.fixed.split(",")
         g = (int(vals[0]), int(vals[1]), int(vals[2]), int(vals[3]),
-             float(vals[4]), int(vals[5]))
+             float(vals[4]), int(vals[5]),
+             float(vals[6]) if len(vals) > 6 else 0.0)
         print("rule:", describe(g))
         for r, lst in runs.items():
             if lst:
@@ -143,7 +188,9 @@ def main():
         if not runs[held] or not train:
             continue
         best = None
-        for g in GRID:
+        grid = ([g + (wd,) for g in GRID for wd in WIT_D] if a.witness_pos
+                else GRID)
+        for g in grid:
             tot = 0.0
             feasible = True
             for r in train:

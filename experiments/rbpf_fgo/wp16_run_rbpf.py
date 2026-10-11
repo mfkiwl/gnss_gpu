@@ -254,6 +254,7 @@ def main() -> int:
 
     trace_windows = _parse_trace_windows(args.trace_tow)
     trace_rows = []
+    row_dump, row_epochs = [], []   # WP45 RBPF_DUMP_ROWS diagnostic
 
     sync_gen = rn.sync_obs_hold(dec, decb, maxage=args.maxage)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -562,6 +563,15 @@ def main() -> int:
                     break
 
         cols["ne"].append(ne)
+        if out is not None and out.get("rows") is not None:
+            # WP45 diagnostic rows (RBPF_DUMP_ROWS=1), keyed by npz row
+            ri_ = len(cols["ne"]) - 1
+            row_dump.append(np.column_stack(
+                [np.full(len(out["rows"]), ri_, dtype=float), out["rows"]]))
+            fx_ = out.get("fix_xyz")
+            row_epochs.append(np.concatenate(
+                [[ri_], out["rows_pos0"],
+                 fx_ if fx_ is not None else np.full(3, np.nan)]))
         cols["tow"].append(tow)
         cols["week"].append(week)
         cols["ecef"].append(ecef)
@@ -724,6 +734,11 @@ def main() -> int:
               f"inherit={pf.cfg.track_inherit} empty={pf.cfg.track_empty} "
               f"out={pf.cfg.track_out}")
     _write_outputs()
+    if row_dump:
+        rows_path = npz_path.with_name(npz_path.stem + "_rows.npz")
+        np.savez_compressed(rows_path, rows=np.concatenate(row_dump),
+                            epochs=np.asarray(row_epochs))
+        print(f"WP45: wrote {len(row_epochs)} epochs of DD rows to {rows_path}")
     print(f"Wrote {pos_path} and {npz_path}")
 
     # window summary (gate quick-look; official numbers via analyze script)
