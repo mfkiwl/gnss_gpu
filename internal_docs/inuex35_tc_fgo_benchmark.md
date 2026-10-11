@@ -317,6 +317,100 @@ CUDA batch-LAMBDA path is 0.71x at batch size one because the architecture
 normally submits one shared problem per epoch, so CPU remains the default.
 FFBSi was descoped because basin-lineage smoothing requires new design work.
 
+### FIX rate at a wrong-FIX budget (WP44–WP45, 2026-10-11/12)
+
+**Goal.** Raise the correct-FIX share of rover epochs while every run keeps
+its wrong-FIX share (3D error ≥ 0.5 m) at or below 1% of its fixes.
+`fix_integrity.py` scores every system the same way.
+
+**Result (shipped WP45, one configuration for all runs, 3 seeds).**
+
+| Correct FIX (wrong / FIX) | run1 | run2 | run3 |
+|---|---:|---:|---:|
+| inuex35 TC-FGO (local reproduction) | 46.7% (5.72%) | 59.7% (1.78%) | 58.2% (2.06%) |
+| libgnss++ GTSAM FGO (`gnss_fgo_parity`) | 37.7% (29.9%) | 77.3% (1.57%) | 68.2% (1.56%) |
+| libgnss++ KF-RTK, raw | 68.0% (8.76%) | 76.7% (1.80%) | 71.6% (3.01%) |
+| libgnss++ KF-RTK, in-sample gate to ≤ 1% | 52.8% (0.97%) | 76.4% (0.65%) | 68.3% (0.96%) |
+| libgnss++ KF-RTK, LORO gate (cap 0.7%) | 61.6% (2.66%) | 58.3% (0.13%) | 59.8% (0.17%) |
+| RB-FGO-PF WP43 | 35.4% (0.33%) | 64.1% (0.16%) | 68.5% (0.10%) |
+| **RB-FGO-PF WP45** | **66.6 ± 1.0% (0.56%)** | **83.9 ± 0.2% (0.09%)** | **84.3 ± 0.1% (0.04%)** |
+
+Worst seed wrong/FIX: 0.63 / 0.17 / 0.06%. PPC OFFICIAL 80.8 / 92.7 /
+90.4%, `<50cm_full%` 80.1 / 90.2 / 94.7%. The KF-RTK baseline is
+`ppc-demo --solver rtk --preset low-cost --ratio 2.4
+--max-subset-ar-drop-steps 18 --rtk-snr-weighting --no-arfilter`. Its gates
+use only the `.pos` telemetry (ratio, NumSat, NIS, outliers).
+
+**What changed.**
+
+1. **Satellite set (the main gain).** The runner asked cssrlib for three
+   bands per system. cssrlib's `qcedit` drops a satellite when any of the
+   requested bands fails, and the DD factors use only two. So every
+   satellite without L5, and every BeiDou satellite without B1C (BDS-2,
+   most IGSO/GEO), was discarded. On the run1 epochs the PF missed while
+   libgnss++ KF-RTK fixed them, the KF used a median 15 satellites and the
+   graph 7–8. `--nf 2 --band-priority 'C:2,6;R:-'` (BeiDou B1I + B3I,
+   GLONASS off) raises one sampled run1 epoch from 15 to 25 satellites.
+   With the old label (`nb >= 12`) run1 goes from 35.4% to 58.7% correct
+   FIX, and the wrong-FIX share falls to 0.00%. `--nf 2` with the default
+   B1C + B1I gives 44.1%.
+2. **Basin persistence (`RBPF_KEEP=1`).** Graph re-seeds no longer empty
+   the basins; only slip / MW / CMC / FDE-on-carrier releases do.
+3. **FIX label rule.** The label is
+   `nb_at[0.95] >= 5 or (nb_at_ne[0.95] >= 12 and ne_mass >= 0.1) or
+   (base LAMBDA fix with >= 5 ambiguities)`, behind the PF output guards.
+   `nb_at[t]` counts the MAP basin's pairs whose agreement mass across all
+   particles exceeds t. `nb_at_ne` is the same over the non-empty particles,
+   renormalised, and `ne_mass` is their mass. `fix_rule_loro.py` selects
+   the rule on two runs and applies it to the third; all three folds pick
+   this rule. `--fix-rule` applies it in the runner and matches the offline
+   labels row for row.
+
+The run1-only recovery flags of WP43 are not used: with the sanity reset on
+run1 the three seeds score 67.1% (0.54%), without it 66.6% (0.56%), and
+the same flags on run2/run3 cost 0.1–2.3 pp.
+
+**Not adopted.**
+
+- **`RBPF_TRACK=1` with a probation window** (score on the loose float prior
+  for 20 s after a belief reset): run1 41.0% (1.17%) against 42.2%
+  (0.26%) under the same label grid. Without the window 41.1% (1.70%).
+- **Ambiguity-function label (`RBPF_AFV=1`):** FIX when ≥ 95% of the
+  epoch's DD carrier rows sit within 0.15 cycle of an integer at the
+  reported position. With ≥ 12 rows it adds +0.9 / +1.6 / +0.8 pp before
+  WP45 and +0.3–0.6 pp after it. With 8–10 rows run3 reaches 1.56% wrong:
+  the held rows are integer at the position solved from them, so with few
+  rows a self-consistent wrong integer set passes. Kept as a diagnostic.
+- **Independent-satellite witness (Fredeluces et al. 2024):** carrier rows
+  of satellites outside the MAP basin. Too few per epoch (0.4–1.7) to
+  separate correct from wrong candidates. libgnss++'s own audits reject
+  the same idea, for the same shared urban multipath basin.
+- **Lower `nb` floors scaled by the number of pairs:** at most +2.5 pp on
+  run1, with +60–140 wrong fixes per run.
+- **External KF-RTK as a FIX witness:** labelling FIX where libgnss++
+  KF-RTK fixes within 0.2 m of the PF position gave 51.7 / 74.8 / 74.5%
+  before WP45. That is a two-engine system, not the PF. Used only to locate
+  the run1 losses that led to item 1.
+- **Elevation mask 10°** via `--env ELMIN_DEG=10`: bit-identical output, so
+  the setting does not reach the filter. Not investigated further.
+
+**Literature and OSS read for this round.** PPC2024 results (1st TURING:
+public 78.7%, private 85.6%; 2nd TUMSAT; 3rd AIST). These scores are the
+distance share within 0.5 m, FLOAT included, over Tokyo and Nagoya. Also:
+TURING's gici-open fork (LAMBDA + WL/NL, FIX accepted only if the
+re-optimised range cost does not rise, ZUPT); Fredeluces, Ozeki, Kubo,
+El-Mowafy, Sensors 24(9) 2712, 2024 (velocity-propagated float prior,
+independent-satellite ambiguity check, constellation-subset retry); Niimi
+et al. 2025 (arXiv 2506.03537, RBPF without integer resolution); and the
+libgnss++ audits (`ppc_fix_integrity_audit.md`,
+`fgo_disjoint_ar_shadow_plan.md`, `fgo_multiepoch_ar_fix_rate_audit.md`).
+
+Reproduction: `bash run_ship.sh <name> <run> 0 --rb-seed <seed>` (WP45 is
+the default), then `python fix_integrity.py --traj
+x:<run>:results/<name>/run<run>.pos:pos`. The rule selection is
+`python fix_rule_loro.py <prefixes>` on runs that carry the WP44
+diagnostics.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
