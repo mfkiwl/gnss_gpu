@@ -454,7 +454,7 @@ class TrackState:
     """Position belief of one particle lineage (WP43): antenna ECEF mean
     and covariance at graph epoch `ep`, with the shared IMU odometer
     reading `odo` at that epoch (prediction = x + odo_now - odo)."""
-    __slots__ = ('x', 'P', 'odo', 'ep')
+    __slots__ = ('P', 'ep', 'odo', 'x')
 
     def __init__(self, x, P, odo, ep):
         self.x = x
@@ -1071,7 +1071,7 @@ class RbpfFgo:
         cfg = self.cfg
         A0, G = self._batch_rows(prob)
         B = dds.shape[0]
-        m, n = A0.shape
+        n = A0.shape[1]
         iscp = prob.rows_iscp
         pi = np.where(iscp, prob.rows_pair, 0)
         z = dds[:, pi]                                     # (B, m)
@@ -1140,6 +1140,21 @@ class RbpfFgo:
         return ll, s[:, 0:3] + centres, P3
 
     # -- WP43 per-particle position tracking ------------------------------------
+
+    def _track_reset(self, ctx):
+        """True when every belief must be dropped this epoch: the runner
+        flagged a PIM break / missing odometer, or the data gap since the
+        last tracked epoch exceeds track_gap_s."""
+        reset = bool(ctx.get('track_reset')) or ctx.get('odo') is None
+        try:
+            _, tow = time2gpst(ctx['obs'].t)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return reset
+        last = getattr(self, '_track_last_tow', None)
+        if last is not None and tow - last > self.cfg.track_gap_s:
+            reset = True
+        self._track_last_tow = float(tow)
+        return reset
 
     def _track_predict(self, st, odo, ep, q=None):
         """Predict a TrackState to graph epoch `ep` -> (x, P) or None."""
@@ -2212,15 +2227,7 @@ class RbpfFgo:
         [(H, tag)] and sets each particle's new belief."""
         cfg = self.cfg
         odo = ctx.get('odo')
-        reset = bool(ctx.get('track_reset')) or odo is None
-        try:
-            _, tow = time2gpst(ctx['obs'].t)
-            last = getattr(self, '_track_last_tow', None)
-            if last is not None and tow - last > cfg.track_gap_s:
-                reset = True
-            self._track_last_tow = float(tow)
-        except Exception:
-            pass
+        reset = self._track_reset(ctx)
         if reset:
             for p in self.particles:
                 p.state = None
@@ -2259,7 +2266,7 @@ class RbpfFgo:
             ek, epred = ((sk, pred) if cfg.track_empty else (None, None))
             moves = []   # (logprior, eval idx, burst idx, H, tag)
 
-            def mv(prior, H, tag, skey, spred):
+            def mv(prior, H, tag, skey, spred, moves=moves):
                 moves.append((prior, add(H, skey, spred),
                               add({}, skey, spred), H, tag))
             if p.H:
@@ -2322,15 +2329,7 @@ class RbpfFgo:
         variant is updated by the same batched call."""
         cfg = self.cfg
         odo = ctx.get('odo')
-        reset = bool(ctx.get('track_reset')) or odo is None
-        try:
-            _, tow = time2gpst(ctx['obs'].t)
-            last = getattr(self, '_track_last_tow', None)
-            if last is not None and tow - last > cfg.track_gap_s:
-                reset = True
-            self._track_last_tow = float(tow)
-        except Exception:
-            pass
+        reset = self._track_reset(ctx)
         if odo is None:
             odo = np.zeros(3)
         nV = len(cfg.track_variants)
