@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Run the shipped RB-FGO-PF configuration (WP18 + output guards) on one
-# Tokyo PPC run. Equivalent to repro_tc_fgo/results/wp18/run_rbpf18.sh.
+# Run the shipped RB-FGO-PF configuration (WP18 + output guards + the WP43
+# output layer) on one Tokyo PPC run. With RBPF_SHIP=wp18 it is equivalent
+# to repro_tc_fgo/results/wp18/run_rbpf18.sh.
 #
 #   PPC_DATA_ROOT=.../PPC-Dataset-data/tokyo \
 #   bash run_ship.sh <name> <run 1|2|3> <max_epochs> [extra wp16_run_rbpf.py args]
@@ -18,6 +19,11 @@ if [ -z "$PY" ]; then
 fi
 
 GUARDS="--env RBPF_FIX_VOTE_DD=6.0 --env RBPF_FIX_VOTE_DPR=3.5 --env RBPF_FB_COMMIT_MAX_DPR=1.5"
+# WP43 output layer (2026-10-10): tracked lineage beliefs as the reported
+# position and the dead-reckoned gap fill. RBPF_SHIP=wp18 reproduces the
+# WP18 output (FIX decisions are the same either way).
+WP43="--dr-fill 1 --env RBPF_TRACK=2 --env RBPF_TRACK_EMPTY=1 --env RBPF_TRACK_OUT=2"
+if [ "${RBPF_SHIP:-wp43}" = "wp18" ]; then WP43=""; fi
 R1FLAGS=""
 if [ "$RUN" = "1" ]; then
   R1FLAGS="--sanity-enable 1 --env SANITY_PR_ONLY=1 --env RECOV_CP_HOLD_EPOCHS=5 --env RECOV_CP_RELEASE_THRESH=2.0 --env RECOV_CP_RELEASE_COUNT=5 --env SANITY_MAX_MEDIAN_RATIO=5.0"
@@ -27,5 +33,5 @@ mkdir -p "$HERE/results"
 "$PY" "$HERE/wp16_run_rbpf.py" "$RUN" --max-ep "$MAXEP" \
   --out-dir "$HERE/results/$NAME" \
   --env SEED_N_CYCLES=1 --env COND_HOLD=1 --env RBPF_FB=1 --env RBPF_SPAWN=1 \
-  $R1FLAGS $GUARDS "$@" > "$HERE/results/$NAME.log" 2>&1
+  $R1FLAGS $GUARDS $WP43 "$@" > "$HERE/results/$NAME.log" 2>&1
 tail -n 6 "$HERE/results/$NAME.log"

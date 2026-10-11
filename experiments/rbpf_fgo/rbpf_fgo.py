@@ -90,7 +90,7 @@ from cssrlib.gnss import sat2prn, uGNSS, geodist, time2gpst
 from cssrlib.mlambda import LambdaError
 
 from gtsam_rtk_standalone import (
-    GtsamRtkTc, _wp13m_finite_guarded_mlambda, _get_wavelengths)
+    GtsamRtkTc, _wp13m_finite_guarded_mlambda, _get_wavelengths, build_pim)
 
 _LOG2PI = math.log(2.0 * math.pi)
 
@@ -367,6 +367,51 @@ class RbpfConfig:
         # and promote only after cumulative future predictive evidence wins.
         self.shadow_epochs = _env_i('RBPF_SHADOW_EPOCHS', 0)
         self.shadow_margin = _env_f('RBPF_SHADOW_MARGIN', 0.0)
+        # ------------------------------------------------------------------
+        # WP43 per-particle position tracking (default OFF = WP18 ship path
+        # bit-identical). Each particle lineage carries its own Gaussian
+        # belief of the antenna position, predicted between epochs with
+        # the shared graph's IMU motion increment and updated with the
+        # epoch's DD rows under the particle's own integers. (The WP19
+        # cluster prior lacked the motion prediction: it centred the next
+        # epoch on the previous absolute position.)
+        #  2 = shadow (shipped with RBPF_TRACK_OUT=2): beliefs are updated
+        #      under the integers the WP18 moves picked; weights untouched.
+        #  1 = experimental, not adopted: the weight increment becomes the
+        #      predictive likelihood against the belief, so every particle
+        #      x move needs its own solve (one batched `_loglik_batch`
+        #      call). Raised the fix rate but locked wrong basins (WP43).
+        self.track = _env_i('RBPF_TRACK', 0)
+        # random-walk sigma [m per graph epoch] of the IMU-predicted
+        # motion increment (float-velocity error over 0.2 s)
+        self.track_q = _env_f('RBPF_TRACK_Q', 0.02)
+        # floor [m] on the tracked posterior sigma (unmodelled multipath)
+        self.track_floor = _env_f('RBPF_TRACK_FLOOR', 0.01)
+        # adopt / spawn moves: 1 = keep the lineage's position belief as
+        # the prior of the new integers; 0 = start from the loose prior
+        self.track_inherit = _env_i('RBPF_TRACK_INHERIT', 1)
+        # empty (float) particles: 1 = track a code-only belief; 0 = drop
+        # their belief so they stay loose explorers
+        self.track_empty = _env_i('RBPF_TRACK_EMPTY', 0)
+        # drop every belief after a data gap longer than this [s]
+        self.track_gap_s = _env_f('RBPF_TRACK_GAP_S', 2.0)
+        # Reported position: 0 = WP18 (FIX: epoch-local LS, FLOAT: shared
+        # float); 1 = FIX only, mass-weighted tracked belief of the
+        # particles carrying every reported integer; 2 = every epoch whose
+        # MAP basin is non-empty reports that basin's mass-weighted
+        # tracked belief (FIX/FLOAT labels unchanged). Output only: the
+        # weights, holds and FIX decisions never see it.
+        self.track_out = _env_i('RBPF_TRACK_OUT', 0)
+        # extra shadow-tracking variants run side by side with the main
+        # one (RBPF_TRACK=2 only; weights are untouched so they share one
+        # filter): "q:floor:empty,q:floor:empty,..." -> per-epoch MAP
+        # beliefs recorded for each (variant 0 = the main knobs above)
+        self.track_variants = [(self.track_q, self.track_floor,
+                                self.track_empty)]
+        for part in os.environ.get('RBPF_TRACK_VARIANTS', '').split(','):
+            if part.strip():
+                q_, f_, e_ = part.split(':')
+                self.track_variants.append((float(q_), float(f_), int(e_)))
 
 
 # --------------------------------------------------------------------------
@@ -393,12 +438,29 @@ def _copy_H(H):
 
 
 class Particle:
-    __slots__ = ('H', 'logw', 'last_move')
+    __slots__ = ('H', 'logw', 'last_move', 'state', 'vstates')
 
-    def __init__(self, H=None, logw=0.0):
+    def __init__(self, H=None, logw=0.0, state=None, vstates=None):
         self.H = H if H is not None else {}
         self.logw = float(logw)
         self.last_move = 'init'
+        # WP43: None or an immutable TrackState (shared by resampled copies)
+        self.state = state
+        # WP43: beliefs of the extra shadow variants (index v-1)
+        self.vstates = list(vstates) if vstates else []
+
+
+class TrackState:
+    """Position belief of one particle lineage (WP43): antenna ECEF mean
+    and covariance at graph epoch `ep`, with the shared IMU odometer
+    reading `odo` at that epoch (prediction = x + odo_now - odo)."""
+    __slots__ = ('P', 'ep', 'odo', 'x')
+
+    def __init__(self, x, P, odo, ep):
+        self.x = x
+        self.P = P
+        self.odo = odo
+        self.ep = ep
 
 
 # --------------------------------------------------------------------------
@@ -487,6 +549,7 @@ class RbpfFgo:
         self.shadow_pending = False
         self.shadow_challengers = []  # {H, score, age}
         self.shadow_promotions = 0
+        self.track_evals = 0         # WP43 batched (particle x move) solves
         # WP17 item 4: WP15 GPU batch-LAMBDA drop-in (CPU fallback kept)
         self._gpu_mlb = None
         self.gpu_topk_calls = 0
@@ -524,6 +587,8 @@ class RbpfFgo:
             rtk._rbpf_graph_reseeded = False
             for p in self.particles:
                 p.H = {}
+                p.state = None
+                p.vstates = []
             self.last_seen.clear()
             released = set()
             # WP17: a graph re-seed wipes the feedback state too (the
@@ -967,6 +1032,139 @@ class RbpfFgo:
             ll = -1e12
         cache[key] = ll
         return ll
+
+    def _batch_rows(self, prob):
+        """Hypothesis-independent row layout for `_loglik_batch`
+        (memoized on the problem): the stacked design (m, 3+G) with one
+        nuisance column per (sys,f) group carrying CP rows."""
+        got = getattr(prob, '_batch_rows', None)
+        if got is not None:
+            return got
+        iscp = prob.rows_iscp
+        groups = {}
+        grp = np.full(len(iscp), -1, dtype=int)
+        for r in np.where(iscp)[0]:
+            g = prob.pairs[prob.rows_pair[r]][0]
+            grp[r] = groups.setdefault(g, len(groups))
+        G = len(groups)
+        A0 = np.zeros((len(iscp), 3 + G))
+        A0[:, 0:3] = prob.rows_J
+        for r in np.where(grp >= 0)[0]:
+            A0[r, 3 + grp[r]] = 1.0
+        prob._batch_rows = (A0, G)
+        return prob._batch_rows
+
+    def _loglik_batch(self, prob, dds, centres, Pps):
+        """Batched `_loglik` (marg_uniform=1 model) over B hypotheses.
+
+        dds (B, nb) held DD integers (nan = un-held); centres (B, 3) prior
+        centre offsets from the float position; Pps (B, 3, 3) prior
+        covariances. Returns (ll (B,), sol (B, 3) posterior offset from
+        the float position, P3 (B, 3, 3) posterior position covariance).
+
+        Every hypothesis shares one (m, 3+G) design: un-held CP rows are
+        masked to zero (their flat-lattice density is the constant term)
+        and a group column with no held row only meets its own prior,
+        whose log-determinant cancels -- so the result equals the scalar
+        `_loglik` up to rounding. This is the kernel a GPU port replaces.
+        """
+        cfg = self.cfg
+        A0, G = self._batch_rows(prob)
+        B = dds.shape[0]
+        n = A0.shape[1]
+        iscp = prob.rows_iscp
+        pi = np.where(iscp, prob.rows_pair, 0)
+        z = dds[:, pi]                                     # (B, m)
+        held = iscp[None, :] & np.isfinite(z)
+        mask = (~iscp)[None, :] | held
+        sb = math.sqrt(cfg.beta)
+        lam = prob.rows_lam
+        v = np.where(held, lam[None, :] * (prob.rows_bmeas[None, :]
+                                           - np.where(held, z, 0.0)),
+                     prob.rows_v0[None, :])
+        sig = np.where(held, prob.rows_sig[None, :] / sb,
+                       prob.rows_sig[None, :])
+        unif = iscp[None, :] & ~held
+        const_ll = -np.sum(np.where(unif, np.log(np.maximum(lam, 1e-3))[None, :],
+                                    0.0), axis=1)
+        v = v - centres @ prob.rows_J.T
+        wrow = mask / sig                                  # (B, m)
+        A = A0[None, :, :] * wrow[:, :, None]
+        b = v * wrow
+        Pinv = np.zeros((B, n, n))
+        ll = np.full(B, -1e12)
+        sol = np.zeros((B, n))
+        P3 = np.repeat(np.eye(3)[None], B, axis=0)
+        try:
+            Pinv[:, 0:3, 0:3] = np.linalg.inv(Pps)
+        except np.linalg.LinAlgError:
+            return ll, sol[:, 0:3], P3
+        if G:
+            idx = np.arange(3, n)
+            Pinv[:, idx, idx] = 1.0 / (cfg.sig_group ** 2)
+        Lam = Pinv + np.einsum('bmi,bmj->bij', A, A)
+        try:
+            s = np.linalg.solve(Lam, np.einsum('bmi,bm->bi', A, b)[..., None])[..., 0]
+            c = cfg.huber_c
+            if c > 0:
+                for _ in range(2):
+                    r = b - np.einsum('bmi,bi->bm', A, s)
+                    sw = np.sqrt(np.minimum(1.0, c / np.maximum(np.abs(r), 1e-12)))
+                    Aw = A * sw[:, :, None]
+                    Lam = Pinv + np.einsum('bmi,bmj->bij', Aw, Aw)
+                    s = np.linalg.solve(
+                        Lam, np.einsum('bmi,bm->bi', Aw, b * sw)[..., None])[..., 0]
+        except np.linalg.LinAlgError:
+            return ll, sol[:, 0:3], P3
+        sign, logdet_lam = np.linalg.slogdet(Lam)
+        sign2, logdet_p3 = np.linalg.slogdet(Pps)
+        logdet_p = logdet_p3 + 2.0 * G * math.log(cfg.sig_group)
+        r = b - np.einsum('bmi,bi->bm', A, s)
+        sig_safe = np.where(mask, sig, 1.0)
+        s_out = np.maximum(np.where(iscp, cfg.mix_sigma_cp, cfg.mix_sigma_pr)[None, :],
+                           sig_safe)
+        eps = cfg.mix_eps
+        ll_base = math.log(1.0 - eps) - 0.5 * r * r - np.log(sig_safe)
+        ll_out = math.log(eps) - 0.5 * (r * sig_safe / s_out) ** 2 - np.log(s_out)
+        row_ll = np.logaddexp(ll_base, ll_out) - 0.5 * _LOG2PI
+        prior = np.einsum('bi,bij,bj->b', s, Pinv, s)
+        out = (np.sum(np.where(mask, row_ll, 0.0), axis=1) + const_ll
+               - 0.5 * prior - 0.5 * logdet_lam - 0.5 * logdet_p)
+        good = (sign > 0) & (sign2 > 0) & np.all(np.isfinite(s), axis=1)
+        ll = np.where(good, out, -1e12)
+        try:
+            P3 = np.linalg.inv(Lam)[:, 0:3, 0:3]
+        except np.linalg.LinAlgError:
+            pass
+        P3 = 0.5 * (P3 + np.swapaxes(P3, 1, 2))
+        return ll, s[:, 0:3] + centres, P3
+
+    # -- WP43 per-particle position tracking ------------------------------------
+
+    def _track_reset(self, ctx):
+        """True when every belief must be dropped this epoch: the runner
+        flagged a PIM break / missing odometer, or the data gap since the
+        last tracked epoch exceeds track_gap_s."""
+        reset = bool(ctx.get('track_reset')) or ctx.get('odo') is None
+        try:
+            _, tow = time2gpst(ctx['obs'].t)
+        except (KeyError, AttributeError, TypeError, ValueError):
+            return reset
+        last = getattr(self, '_track_last_tow', None)
+        if last is not None and tow - last > self.cfg.track_gap_s:
+            reset = True
+        self._track_last_tow = float(tow)
+        return reset
+
+    def _track_predict(self, st, odo, ep, q=None):
+        """Predict a TrackState to graph epoch `ep` -> (x, P) or None."""
+        if st is None:
+            return None
+        q = self.cfg.track_q if q is None else q
+        n = max(int(ep - st.ep), 1)
+        x = st.x + (odo - st.odo)
+        P = st.P + np.eye(3) * (q ** 2) * n
+        return x, P
 
     # -- moves ---------------------------------------------------------------
 
@@ -1628,11 +1826,30 @@ class RbpfFgo:
             ll_t = self._loglik(H_true, prob, cache) if H_true else float('nan')
             ll_e4 = self._loglik({}, prob, cache)
             ham1 = -1
+            hammin = -1
             if prob.cands is not None and zt:
                 z1 = prob.cands[:, 0]
                 ham1 = sum(1 for p_i, zv in zt.items() if int(z1[p_i]) != zv)
+                hammin = min(sum(1 for p_i, zv in zt.items()
+                                 if int(prob.cands[p_i, k]) != zv)
+                             for k in range(prob.cands.shape[1]))
+            # best currently held basin (before this epoch's moves) and
+            # how many truth pairs it gets right / wrong
+            lw = np.array([p_.logw for p_ in self.particles])
+            pbest = self.particles[int(np.argmax(lw))]
+            ll_m = self._loglik(pbest.H, prob, cache) if pbest.H else ll_e4
+            ddb = self._pair_dd(pbest.H, prob) if pbest.H else None
+            nok = nbad = 0
+            if ddb is not None:
+                for p_i, zv in zt.items():
+                    if np.isfinite(ddb[p_i]):
+                        nok += int(int(ddb[p_i]) == zv)
+                        nbad += int(int(ddb[p_i]) != zv)
+            dflt = float(np.linalg.norm(dxt))
             print(f"RBPF_DBG4 ep={ep} ll_true={ll_t:.1f} ll_empty={ll_e4:.1f} "
-                  f"gap={ll_t-ll_e4:.1f} ncp={len(zt)} ham_top1={ham1}")
+                  f"gap={ll_t-ll_e4:.1f} ncp={len(zt)} ham_top1={ham1} "
+                  f"ham_min={hammin} ll_best={ll_m:.1f} best_ok={nok} "
+                  f"best_bad={nbad} flt_err={dflt:.2f}")
         if os.environ.get('RBPF_DBG2'):
             ll_e = self._loglik({}, prob, cache)
             ll_c = (self._loglik(H_cons, prob, cache)
@@ -1645,7 +1862,10 @@ class RbpfFgo:
                   f"npairs={len(prob.pairs)}")
 
         new_states = []
-        for p in self.particles:
+        if cfg.track == 1:
+            new_states = self._moves_tracked(
+                prob, ctx, ep, H_cons, cand_H, spawn_H, _lp_nb, _lp_b)
+        for p in (self.particles if cfg.track != 1 else ()):
             moves = []           # (logprior, loglik, H, tag)
             ll_s = LL(p.H)
             if p.H:
@@ -1682,6 +1902,8 @@ class RbpfFgo:
         for p, (H, tag) in zip(self.particles, new_states):
             p.H = _copy_H(H)
             p.last_move = tag
+        if cfg.track == 2:
+            self._shadow_track(prob, ctx, ep)
 
         if os.environ.get('RBPF_DBG2'):
             from collections import Counter
@@ -1733,6 +1955,39 @@ class RbpfFgo:
         out['gamma'] = float(gamma)
         out['second_gamma'] = float(ranked[1][1]) if len(ranked) > 1 else 0.0
         map_H = rep[ranked[0][0]] if ranked else {}
+        if cfg.track == 2 and len(cfg.track_variants) > 1:
+            var_out = []
+            for v in range(len(cfg.track_variants)):
+                xs, ws = [], []
+                for i_, p_ in enumerate(self.particles):
+                    st_ = p_.state if v == 0 else (
+                        p_.vstates[v - 1] if len(p_.vstates) >= v else None)
+                    if (st_ is not None and ranked
+                            and _canon_basin_id(p_.H) == ranked[0][0]):
+                        xs.append(st_.x)
+                        ws.append(float(w[i_]))
+                if xs and sum(ws) > 0:
+                    var_out.append((np.average(np.asarray(xs), axis=0,
+                                               weights=np.asarray(ws)),
+                                    float(sum(ws))))
+                else:
+                    var_out.append((None, float('nan')))
+            out['trk_var'] = var_out
+        if cfg.track:
+            # WP43: tracked beliefs of the MAP basin and of every non-empty
+            # particle (mass-weighted), recorded for output studies
+            for key, sel in (('trk_map', lambda p_: _canon_basin_id(p_.H)
+                              == ranked[0][0]),
+                             ('trk_mix', lambda p_: bool(p_.H))):
+                xs, ws = [], []
+                for i_, p_ in enumerate(self.particles):
+                    if p_.state is not None and ranked and sel(p_):
+                        xs.append(p_.state.x)
+                        ws.append(float(w[i_]))
+                if xs and sum(ws) > 0:
+                    out[key] = np.average(np.asarray(xs), axis=0,
+                                          weights=np.asarray(ws))
+                    out[key + '_mass'] = float(sum(ws))
 
         # ---- fix decision: PER-COMPONENT posterior agreement mass.
         # Basin-level mass splits among near-identical basins (a basin,
@@ -1774,6 +2029,22 @@ class RbpfFgo:
                 zmap[j] = int(zmap[ref] - int(dd_map[pi_]))
             xz, _, fix_info = self._conditional_mean(H_sub, prob)
             out['min_info'] = float(fix_info)
+            if xz is not None and cfg.track and cfg.track_out == 1:
+                # WP43: mass-weighted tracked belief of the particles that
+                # carry every reported integer
+                xs, ws = [], []
+                for i_, p in enumerate(self.particles):
+                    if p.state is None:
+                        continue
+                    di = dd_all[i_]
+                    if all(np.isfinite(di[pi_])
+                           and int(di[pi_]) == int(dd_map[pi_])
+                           for pi_ in used_pairs):
+                        xs.append(p.state.x)
+                        ws.append(float(w[i_]))
+                if xs and sum(ws) > 0.5:
+                    xz = np.average(np.asarray(xs), axis=0,
+                                    weights=np.asarray(ws))
             if cfg.loo_enable:
                 loo = self._loo_consistency(prob, dd_map, used_pairs)
                 if loo.size:
@@ -1921,7 +2192,10 @@ class RbpfFgo:
         picks, ess = self._maybe_resample(logw)
         out['ess'] = float(ess)
         if picks is not None:
-            new = [Particle(_copy_H(self.particles[i].H), 0.0) for i in picks]
+            new = [Particle(_copy_H(self.particles[i].H), 0.0,
+                            state=self.particles[i].state,
+                            vstates=self.particles[i].vstates)
+                   for i in picks]
             for np_, i in zip(new, picks):
                 np_.last_move = self.particles[i].last_move
             self.particles = new
@@ -1931,9 +2205,182 @@ class RbpfFgo:
         if cfg.cluster_relin:
             self.cluster_states = next_cluster_states
 
+        # WP43 output: the MAP basin's tracked belief replaces the report
+        # (after the feedback / guards consumed the WP18 position)
+        if cfg.track and cfg.track_out == 2 and out.get('trk_map') is not None:
+            out['pos_wp18'] = out['pos']
+            out['pos'] = np.asarray(out['trk_map'], dtype=float).copy()
+
         self.last = out
         self.step_seconds += time.perf_counter() - t0
         return out
+
+    def _moves_tracked(self, prob, ctx, ep, H_cons, cand_H, spawn_H,
+                       lp_nb, lp_b):
+        """WP43 fully-adapted move step with per-particle position beliefs.
+
+        Same move set, priors and sampling as the WP18 loop in `step`,
+        but each (particle, move) is scored against the particle's own
+        predicted position belief (or the loose float prior when it has
+        none), and the burst alternative uses that same prior. All the
+        solves of the epoch go through one `_loglik_batch` call. Returns
+        [(H, tag)] and sets each particle's new belief."""
+        cfg = self.cfg
+        odo = ctx.get('odo')
+        reset = self._track_reset(ctx)
+        if reset:
+            for p in self.particles:
+                p.state = None
+        if odo is None:
+            odo = np.zeros(3)
+
+        nb = len(prob.pairs)
+        nan_dd = np.full(nb, np.nan)
+        evals_dd, evals_c, evals_P = [], [], []
+        index = {}
+        fresh_c = np.zeros(3)
+        fresh_P = prob.Ppos
+
+        def add(H, skey, pred):
+            key = (_canon_basin_id(H) if H else (), skey)
+            k = index.get(key)
+            if k is not None:
+                return k
+            k = len(evals_dd)
+            index[key] = k
+            evals_dd.append(self._pair_dd(H, prob) if H else nan_dd)
+            if pred is None:
+                evals_c.append(fresh_c)
+                evals_P.append(fresh_P)
+            else:
+                evals_c.append(pred[0] - prob.pos)
+                evals_P.append(pred[1])
+            return k
+
+        plans = []
+        for p in self.particles:
+            pred = self._track_predict(p.state, odo, ep)
+            sk = id(p.state) if pred is not None else None
+            fk, fp = (sk, pred)
+            nk, npred = ((sk, pred) if cfg.track_inherit else (None, None))
+            ek, epred = ((sk, pred) if cfg.track_empty else (None, None))
+            moves = []   # (logprior, eval idx, burst idx, H, tag)
+
+            def mv(prior, H, tag, skey, spred, moves=moves):
+                moves.append((prior, add(H, skey, spred),
+                              add({}, skey, spred), H, tag))
+            if p.H:
+                mv(cfg.p_survive, p.H, 'survive', fk, fp)
+                H_ext = self._extend(p.H, prob)
+                if H_ext is not None:
+                    mv(cfg.p_extend, H_ext, 'extend', fk, fp)
+                H_shr = self._shrink_worst(p.H, prob)
+                if H_shr is not None:
+                    mv(cfg.p_shrink, H_shr, 'shrink', fk, fp)
+                mv(cfg.p_release, {}, 'release', ek, epred)
+            else:
+                mv(cfg.p_survive + cfg.p_extend + cfg.p_shrink
+                   + cfg.p_release, p.H, 'stay', ek, epred)
+            if H_cons is not None:
+                mv(cfg.p_adopt_cons, H_cons, 'adopt_cons', nk, npred)
+            for Hk in cand_H:
+                mv(cfg.p_adopt / len(cand_H), Hk, 'adopt', nk, npred)
+            for Hs in spawn_H:
+                mv(cfg.p_spawn / len(spawn_H), Hs, 'spawn', nk, npred)
+            plans.append(moves)
+
+        ll, sol, P3 = self._loglik_batch(
+            prob, np.asarray(evals_dd), np.asarray(evals_c),
+            np.asarray(evals_P))
+        self.track_evals += len(evals_dd)
+
+        floor2 = np.eye(3) * cfg.track_floor ** 2
+        made = {}
+        new_states = []
+        for p, moves in zip(self.particles, plans):
+            pri = np.array([mv_[0] for mv_ in moves], dtype=float)
+            pri /= pri.sum()
+            a_nb = np.array([lp_nb + ll[mv_[1]] for mv_ in moves])
+            a_b = np.array([lp_b + ll[mv_[2]] for mv_ in moves])
+            lam_arr = np.log(pri) + np.logaddexp(a_nb, a_b)
+            mx = float(np.max(lam_arr))
+            wsum = np.exp(lam_arr - mx)
+            tot = float(np.sum(wsum))
+            p.logw += mx + math.log(tot)
+            pick = int(self.rng.choice(len(moves), p=wsum / tot))
+            _, e, eb, H, tag = moves[pick]
+            if not H and not cfg.track_empty:
+                p.state = None
+            else:
+                src = e if a_nb[pick] >= a_b[pick] else eb
+                st = made.get(src)
+                if st is None:
+                    st = TrackState(prob.pos + sol[src], P3[src] + floor2,
+                                    np.array(odo, dtype=float), ep)
+                    made[src] = st
+                p.state = st
+            new_states.append((H, tag))
+        return new_states
+
+    def _shadow_track(self, prob, ctx, ep):
+        """WP43 RBPF_TRACK=2: update every particle's position belief
+        under the integers it now holds, without touching the weights
+        (the WP18 move/weight path runs unchanged). Every configured
+        variant is updated by the same batched call."""
+        cfg = self.cfg
+        odo = ctx.get('odo')
+        reset = self._track_reset(ctx)
+        if odo is None:
+            odo = np.zeros(3)
+        nV = len(cfg.track_variants)
+        nb = len(prob.pairs)
+        index, dds, cs, Ps, plan = {}, [], [], [], []
+        for p in self.particles:
+            if len(p.vstates) != nV - 1:
+                p.vstates = [None] * (nV - 1)
+            row = []
+            for v, (q, _floor, empty) in enumerate(cfg.track_variants):
+                st = p.state if v == 0 else p.vstates[v - 1]
+                if reset or (not p.H and not empty):
+                    st = None
+                if not p.H and not empty:
+                    row.append(None)
+                    continue
+                pred = self._track_predict(st, odo, ep, q)
+                key = (v, _canon_basin_id(p.H),
+                       id(st) if pred is not None else None)
+                k = index.get(key)
+                if k is None:
+                    k = index[key] = len(dds)
+                    dds.append(self._pair_dd(p.H, prob) if p.H
+                               else np.full(nb, np.nan))
+                    if pred is None:
+                        cs.append(np.zeros(3))
+                        Ps.append(prob.Ppos)
+                    else:
+                        cs.append(pred[0] - prob.pos)
+                        Ps.append(pred[1])
+                row.append(k)
+            plan.append(row)
+        if dds:
+            _, sol, P3 = self._loglik_batch(prob, np.asarray(dds),
+                                            np.asarray(cs), np.asarray(Ps))
+            self.track_evals += len(dds)
+        made = {}
+        for p, row in zip(self.particles, plan):
+            for v, k in enumerate(row):
+                st = None
+                if k is not None:
+                    st = made.get(k)
+                    if st is None:
+                        fl = cfg.track_variants[v][1]
+                        st = made[k] = TrackState(
+                            prob.pos + sol[k], P3[k] + np.eye(3) * fl ** 2,
+                            np.array(odo, dtype=float), ep)
+                if v == 0:
+                    p.state = st
+                else:
+                    p.vstates[v - 1] = st
 
     def _loo_consistency(self, prob, dd_map, used_pairs):
         """Absolute held-out DD-CP innovations in metres.
@@ -2146,9 +2593,54 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
         self._rbpf_ctx = {
             'obs': obs, 'obsb': obsb, 'obs_sd': obs_sd, 'rs': rs,
             'rsb': rsb, 'sat': sat, 'el': el, 'iu': iu, 'ir': ir, 'ep': ep}
+        if self.rbpf.cfg.track:
+            # WP43: IMU-predicted antenna motion since the last committed
+            # epoch (the prediction this epoch's graph update starts from)
+            dm = None
+            try:
+                if (self.current_estimate is not None
+                        and self.last_valid_epoch is not None):
+                    a0 = self._antenna_ecef(self.current_estimate.atPose3(
+                        self.PX(self.last_valid_epoch)))
+                    a1 = self._antenna_ecef(new_values.atPose3(self.PX(ep)))
+                    dm = a1 - a0
+            except RuntimeError:
+                dm = None
+            self._rbpf_ctx['dmotion'] = dm
         return super()._build_dd_factors_arm(
             graph, new_values, obs, obsb, obs_sd, rs, rsb, sat, el, iu, ir,
             pos_pred_ecef, ep)
+
+    def _antenna_ecef(self, pose):
+        pe = self.ecef_T_nav.compose(pose)
+        return (np.array(pe.translation())
+                + pe.rotation().matrix() @ self.lever_arm)
+
+    def predict_antenna_at(self, t):
+        """WP43 output gap fill: IMU dead-reckoned antenna ECEF at obs
+        time `t` from the last committed phase-2 state, without touching
+        the filter. Returns (predicted, antenna at the last committed
+        epoch) or None. `imu_idx` always points just past the last
+        committed epoch (abandoned epochs roll it back)."""
+        if (getattr(self, 'phase', 1) != 2 or self.current_estimate is None
+                or self.last_valid_epoch is None):
+            return None
+        try:
+            ep = self.last_valid_epoch
+            pose = self.current_estimate.atPose3(self.PX(ep))
+            vel = np.array(self.current_estimate.atVector(self.PV(ep)))
+            bias = self.current_estimate.atConstantBias(self.PB(ep))
+            _, tow = time2gpst(t)
+            pim, n_int, _, _ = build_pim(self.imu_params, bias,
+                                         self.imu_data, self.imu_idx,
+                                         target_tow=tow)
+            if n_int < 1:
+                return None
+            import gtsam
+            pred = pim.predict(gtsam.NavState(pose, vel), bias)
+            return self._antenna_ecef(pred.pose()), self._antenna_ecef(pose)
+        except (RuntimeError, IndexError, ValueError):
+            return None
 
     # every ambiguity release (slip/MW/CMC/outage/FDE/ladder) invalidates
     # that (sat,f) in every particle's basin
@@ -2177,6 +2669,22 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
                     self.nav.vsat[_s - 1, :] = 0
         if getattr(self, 'phase', 1) != 2 or self._rbpf_ctx is None:
             return
+        if self.rbpf.cfg.track:
+            # WP43 odometer: accumulate committed epochs' IMU increments;
+            # a PIM break (pose untied from the IMU chain) or a missing
+            # increment invalidates every particle's position belief.
+            ctx = self._rbpf_ctx
+            dm = ctx.get('dmotion')
+            nbreak = getattr(self, 'pim_break_count', 0)
+            reset = (dm is None or not np.all(np.isfinite(dm))
+                     or nbreak != getattr(self, '_rbpf_pim_breaks', 0))
+            self._rbpf_pim_breaks = nbreak
+            if not hasattr(self, '_rbpf_odo'):
+                self._rbpf_odo = np.zeros(3)
+            if not reset:
+                self._rbpf_odo = self._rbpf_odo + dm
+            ctx['odo'] = self._rbpf_odo.copy()
+            ctx['track_reset'] = reset
         self._rbpf_last = self.rbpf.step(self, self._rbpf_ctx)
 
 

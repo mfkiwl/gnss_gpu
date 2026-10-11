@@ -62,15 +62,17 @@ python tools/build_release_bundle.py --output dist/reproducibility --archive dis
 
 The milestone-2 estimator treats integer ambiguities as persistent discrete
 **basins** and Rao-Blackwellizes the continuous fixed-lag GNSS/IMU graph. On the
-shared Tokyo PPC benchmark, the shipped WP18 configuration beats the published
-inuex35 `<50cm_full%` result on all three runs using the stricter matched-3D
-score (missing rover epochs count as failures).
+shared Tokyo PPC benchmark, the shipped WP43 configuration beats both the
+published inuex35 result and libgnss++ GTSAM on `<50cm_full%` on all three
+runs. It uses the stricter matched-3D score (missing rover epochs count as
+failures) and is averaged over three particle-filter seeds.
 
 | `<50cm_full%` | Tokyo run1 | Tokyo run2 | Tokyo run3 |
 |---|---:|---:|---:|
 | inuex35 README | 56.7% | 69.9% | 67.9% |
-| libgnss++ GTSAM | 56.8% | **80.5%** | 72.8% |
-| **RB-FGO-PF (ours, 3D)** | **59.6%** | 78.7% | **78.1%** |
+| libgnss++ GTSAM | 56.8% | 80.5% | 72.8% |
+| RB-FGO-PF WP18 (3 seeds, 3D) | 60.1% | 78.9% | 81.9% |
+| **RB-FGO-PF WP43 (3 seeds, 3D)** | **63.1%** | **82.7%** | **86.7%** |
 
 <p align="center">
   <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="RB-FGO-PF compared with inuex35 and libgnss++ on three Tokyo PPC runs" width="900">
@@ -94,12 +96,16 @@ flowchart TD
     Cond --> W["Weight += tempered likelihood of<br/>this epoch's DD pseudorange / carrier"]
     W --> Res["Resample when ESS falls below N/2<br/>(systematic, stratified by basin)"]
     Res --> Gamma["gamma = posterior mass of the MAP basin"]
+    Moves --> Track["Each lineage's position belief:<br/>IMU-predicted, updated with its own integers"]
     Res -. next epoch .-> PF
     Gamma --> Dec{"gamma above 0.99 and<br/>float / DD-PR / fix vote agrees?"}
     Dec -- yes --> Nb{"MAP basin resolves<br/>at least 12 ambiguities?"}
-    Nb -- yes --> Fix["Report FIX:<br/>MAP basin conditional mean"]
+    Nb -- yes --> Fix["Report FIX"]
     Nb -- no --> Flt["Report FLOAT"]
     Dec -- no --> Flt
+    Track --> Pos["Reported position: MAP basin's tracked belief<br/>(IMU dead reckoning on abandoned epochs)"]
+    Fix --> Pos
+    Flt --> Pos
     Gamma -- "gamma-gated consensus integers" --> FB["Feedback: hold them in the shared graph;<br/>release when the PF withdraws its mass"]
     FB -.-> FGO
 ```
@@ -109,27 +115,42 @@ from every particle in the same epoch. The design rationale is in
 [RB-FGO-PF design](internal_docs/rbpf_fgo_design.md), and the code is in
 [`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
 
-| Shipped RB-FGO-PF quality | run1 | run2 | run3 |
+| Shipped RB-FGO-PF (WP43) quality, 3-seed mean | run1 | run2 | run3 |
 |---|---:|---:|---:|
-| FixRMS ↓ | **0.062 m** | **0.042 m** | **0.059 m** |
-| Fix rate | 37.8% | 71.1% | 69.4% |
-| Median fixed error | 3.0 cm | 2.5 cm | 3.0 cm |
-| False fixes / shipped fixes ↓ | 0.29% | 0.00% | 0.05% |
-| PPC OFFICIAL | 57.80% | 80.02% | 82.19% |
+| `<50cm_full%` | 63.07 ± 1.37 | 82.65 ± 1.22 | 86.65 ± 0.24 |
+| PPC OFFICIAL | 63.68 ± 1.75% | 85.08 ± 1.28% | 86.94 ± 0.27% |
+| FixRMS ↓ | 0.178 m | 0.073 m | 0.055 m |
+| FIX epochs / rover epochs | 35.5% | 64.2% | 68.6% |
+| Median fixed error | 2.7 cm | 2.4 cm | 2.7 cm |
+| False fixes / shipped fixes ↓ | 0.33% | 0.16% | 0.10% |
+
+WP43 (2026-10-10) changes only the written output. The particle weights,
+holds and FIX decisions are WP18's.
+
+- **Tracked position belief.** Each particle lineage carries its own Gaussian
+  belief of the antenna position. It is predicted with the shared graph's
+  IMU motion and updated with the epoch's DD rows under the lineage's own
+  integers. The reported position is the MAP basin's belief, which is more
+  accurate than the shared float on FLOAT epochs and slightly better on FIX
+  epochs.
+- **Dead-reckoning fill.** On rover epochs the graph abandons (5–9% of each
+  run), the output is the last reported position plus the IMU-predicted
+  motion. These epochs had no output before.
+
+Over the same three seeds, WP43 adds +3.0 / +3.7 / +4.8 pp `<50cm_full%` and
++6.6 / +2.9 / +3.5 pp OFFICIAL to WP18. Every seed improves on every run. It
+still runs at 2.1x real time on one CPU core. More particles (N = 256) did
+not add accuracy, so the gain needs no GPU.
 
 Fixes are reported only when at least 12 ambiguities are resolved (`nb >= 12`,
-raised from 9 on 2026-10-06). That moves no position, so `<50cm_full%` and PPC
-OFFICIAL are unchanged, but run3's false-fix rate drops from 3.09% to 0.05%,
-below the approximately 2% integrity target, at a 4–5 pp lower fix rate. The
-floor was selected leave-one-run-out
+raised from 9 on 2026-10-06). The floor was selected leave-one-run-out
 ([record](internal_docs/inuex35_tc_fgo_benchmark.md)). run1 AllRMS is dominated
 by a tunnel float tail.
 
-These are single-seed numbers (particle-filter seed 20260710). Over three seeds,
-the shipped configuration averages 58.8 / 78.4 / 81.1% `<50cm_full%` and 56.7 /
-81.2 / 83.6% PPC OFFICIAL, with a sample standard deviation of up to 2.7 pp per
-run. That is still above inuex35 on every run. The run3 0.53 m false-fix block
-occurs only with the shipped seed. An optional map-aided setting (PLATEAU NLOS
+The WP18 numbers above were measured on Linux. The original Windows
+single-seed WP18 run (seed 20260710) scored 59.6 / 78.7 / 78.1%
+`<50cm_full%`. Its run3 0.53 m false-fix block occurs only with that seed and
+platform. An optional map-aided setting (PLATEAU NLOS
 satellites excluded from ambiguity resolution, using a mask ray-traced at a
 first-pass estimate) adds +3.0 / +0.8 / +0.3 pp OFFICIAL on the three-seed mean.
 Only the run1 gain exceeds the seed spread, so the default is unchanged. A later basin-memory ablation improves full-run run3 to

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP43** (`experiments/rbpf_fgo/`): the shipped run now reports
+  each epoch's MAP basin tracked position belief. Every particle lineage
+  keeps its own IMU-predicted Gaussian position belief, updated under its
+  own integers. On rover epochs the graph abandons, the run writes an IMU
+  dead-reckoned position. FIX decisions are unchanged. Tokyo PPC
+  `<50cm_full%` (3 seeds) goes from 60.1 / 78.9 / 81.9 to 63.1 / 82.7 / 86.7,
+  and PPC OFFICIAL from 57.1 / 82.2 / 83.5 to 63.7 / 85.1 / 86.9.
+  `RBPF_SHIP=wp18` reproduces the previous output.
 - **Behavior change**: `ParticleFilterDevice(resampling="megopolis")`, the
   default, now runs the corrected Megopolis (Chesser et al. 2021) with
   `megopolis_iterations=60`. The previous kernel did not converge to the weight
