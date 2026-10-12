@@ -363,6 +363,10 @@ class GtsamRtk(rtkpos):
         # C/N0 reaches this [dB-Hz] (0 = any): in streets the band left
         # behind is often a diffracted / reflected L1
         self.qc_any_band_cnr = float(os.environ.get('QC_ANY_BAND_CNR', '0'))
+        # WP47: one-band satellites contribute pseudorange only (their
+        # carrier is blanked): they keep a narrow-sky graph solvable
+        # without adding low-quality ambiguities
+        self.qc_any_band_code_only = int(os.environ.get('QC_ANY_BAND_CODE_ONLY', '0'))
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -3432,10 +3436,13 @@ class GtsamRtk(rtkpos):
                 good = [f for f in range(min(nf, obs.S.shape[1])) if edt[f] == 0]
                 if min(float(obs.S[j, f]) for f in good) < self.qc_any_band_cnr:
                     continue
+            one_band = bool(np.any(edt > 0))
             for f in range(min(nf, obs.L.shape[1])):
                 if edt[f] > 0:
                     obs.L[j, f] = 0.0
                     obs.P[j, f] = 0.0
+                elif one_band and self.qc_any_band_code_only:
+                    obs.L[j, f] = 0.0
             keep.append(s_)
         return np.array(sorted(keep), dtype=int)
 
