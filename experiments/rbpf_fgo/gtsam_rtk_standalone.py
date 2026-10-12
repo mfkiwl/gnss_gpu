@@ -355,6 +355,10 @@ class GtsamRtk(rtkpos):
         # but loses L2 is discarded whole. QC_ANY_BAND=1 keeps it and blanks
         # only the failed bands (their L/P are zeroed before differencing).
         self.qc_any_band = int(os.environ.get('QC_ANY_BAND', '0'))
+        # WP47: only when fewer than this many satellites pass with every
+        # band (0 = always). Open sky keeps the dual-band set; narrow
+        # streets (Nagoya 3) add the one-band satellites.
+        self.qc_any_band_max_full = int(os.environ.get('QC_ANY_BAND_MAX_FULL', '0'))
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -3409,6 +3413,9 @@ class GtsamRtk(rtkpos):
         usable band (QC_ANY_BAND, WP46)."""
         sat = super().qcedit(obs, rs, dts, svh, rr=rr)
         if not getattr(self, 'qc_any_band', 0):
+            return sat
+        mx = getattr(self, 'qc_any_band_max_full', 0)
+        if mx > 0 and len(sat) >= mx:
             return sat
         nf = self.nav.nf
         keep = []
