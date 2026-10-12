@@ -371,6 +371,11 @@ class GtsamRtk(rtkpos):
         # one-band satellite, rover or base (1 = unchanged)
         self.qc_any_band_pr_scale = float(os.environ.get('QC_ANY_BAND_PR_SCALE', '1'))
         self._one_band_sats = set()
+        # WP48: C/N0-dependent DD-pseudorange variance (0 = off): a rover
+        # satellite at PR_CNR_REF dB-Hz adds PR_CNR_ERR m (1 sigma), and
+        # every 10 dB below that multiplies its variance by 10
+        self.pr_cnr_err = float(os.environ.get('PR_CNR_ERR', '0'))
+        self.pr_cnr_ref = float(os.environ.get('PR_CNR_REF', '45'))
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -4660,6 +4665,20 @@ class GtsamRtkTc(GtsamRtk):
                     _sig_pr_base = (self._varerr_dd_sigma(1, el[ri], el[ji])
                                     if self.varerr_enable
                                     else self.sigma_pr * np.sqrt(2))
+                    if self.pr_cnr_err > 0:
+                        # WP48: rover C/N0 term (RTKLIB-style), per
+                        # satellite err^2 * 10^((ref - C/N0) / 10) [m^2],
+                        # added for the reference and the target
+                        _var_c = 0.0
+                        for _row in (ri, ji):
+                            try:
+                                _c = float(obs.S[iu[_row], f])
+                            except (IndexError, TypeError, ValueError):
+                                _c = 0.0
+                            if _c > 0:
+                                _var_c += (self.pr_cnr_err ** 2
+                                           * 10.0 ** ((self.pr_cnr_ref - _c) / 10.0))
+                        _sig_pr_base = float(np.sqrt(_sig_pr_base ** 2 + _var_c))
                     if (self.qc_any_band_pr_scale != 1.0
                             and (int(ref_sat) in self._one_band_sats
                                  or int(sat_j) in self._one_band_sats)):
