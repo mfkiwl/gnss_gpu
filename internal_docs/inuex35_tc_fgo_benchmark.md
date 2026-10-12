@@ -411,6 +411,48 @@ x:<run>:results/<name>/run<run>.pos:pos`. The rule selection is
 `python fix_rule_loro.py <prefixes>` on runs that carry the WP44
 diagnostics.
 
+### Nagoya validation of WP45 (WP46, 2026-10-12) — does not transfer
+
+WP45 was selected on Tokyo only. Nagoya, same configuration with the
+Nagoya lever arm (`--env LEVER_ARM=0.593,0.670,1.216`, FLU), 3 seeds:
+
+| Correct FIX (wrong / FIX) | nagoya1 | nagoya2 | nagoya3 |
+|---|---:|---:|---:|
+| WP45 label rule (`3,5,3,12,0.1,5`) | 69.3% (0.70%) | 53.4% (**8.53%**) | 18.5% (**16.2%**) |
+| strictest grid rule (`5,12,5,99,0.1,99`, ≈ `nb >= 12`) | 64.1% (0.00%) | 47.5% (0.77%) | 14.9% (**6.76%**) |
+| libgnss++ KF-RTK, raw (same `ppc-demo` flags as Tokyo) | 64.9% (14.8%) | 48.6% (2.15%) | 29.8% (29.4%) |
+
+- The WP45 term `nb_at[0.95] >= 5` is wrong on 9.7% (nagoya2) and
+  11.8% (nagoya3) of the epochs it labels. A leave-one-run-out over all six
+  runs (`fix_rule_loro.py --set city:run:prefix`) finds no grid rule that
+  keeps every training run at ≤ 0.7% wrong: nagoya3 locks wrong basins
+  with high agreement mass. Its misses have a median 12 satellites in the
+  graph against 17 in libgnss++ KF-RTK, and the PF position is off by a
+  median 5.3 m there.
+- **Reference offset, not a model error.** At the Nagoya reference
+  position only 32–44% of DD carrier rows sit within 0.1 cycle of an
+  integer (Tokyo 73–78%). The L2/L1 residual ratio is 1.0, so this is not
+  ionosphere. A Saastamoinen differential troposphere, a constant
+  base-coordinate offset and the base-epoch age (1 Hz base) do not explain
+  it either. A per-epoch 3D offset absorbs it (2.8 → 0.9 cm residual). The
+  carrier-consistent antenna lies about 4 cm to the vehicle's left of the
+  reference point and about 4 cm below it, consistently over runs. The
+  reference point is therefore offset from the antenna phase centre by a
+  few cm. That is far below the 0.5 m FIX threshold.
+- **Elevation mask did not reach the filter.** cssrlib runs the base QC on
+  `base_nav`, copied before the rover masks are set, so `ELMIN_DEG` below
+  15° had no effect. `QC_BASE_MASK=1` applies it. Mask 10° (seed 20260710)
+  gives nagoya1 67.3% (0.00%), nagoya2 47.0% (4.04%), nagoya3 18.2%
+  (3.75%) and Tokyo run1 59.4% (0.00%) under the strict rule. The result is
+  mixed, and Nagoya seeds spread by 7 pp, so it is not adopted on one seed.
+- **`QC_ANY_BAND=1`** keeps satellites with one usable band. On its own it
+  costs Tokyo run1 10 pp. Combined with mask 10° it gives nagoya3 26.8%
+  (0.57%) on one seed. Not adopted.
+
+Open: the label alone cannot hold ≤ 1% wrong FIX on nagoya2/3. The wrong
+basins in narrow streets need a filter-level fix. The shipped WP45 rule
+should not be presented as validated outside Tokyo.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
