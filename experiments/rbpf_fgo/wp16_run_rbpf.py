@@ -167,7 +167,13 @@ def _rule_fix(rule, out, cols, ecef, flt_ecef, guard_m=5.0):
     the shared filter's own LAMBDA fix, behind the PF output guards
     (reported position within guard_m of the code-only DDPR position and
     the float / DDPR / fix vote 6 m / 3.5 m)."""
-    t, f, t2, f2, m, b = rule
+    t, f, t2, f2, m, b = rule[:6]
+    # optional 7th field (WP48): veto every label while the PF's code-only
+    # DDPR quality exceeds Q (fix_rule_loro.py --guards `qmax`)
+    if len(rule) > 6 and rule[6] < 99:
+        q_ = cols["rb_ddpr_qual"][-1]
+        if np.isfinite(q_) and q_ > rule[6]:
+            return False
     base_fix = cols["base_smode"][-1] == 4 and cols["base_nb"][-1] >= b
     pf = False
     if out is not None and out.get("ok"):
@@ -251,8 +257,9 @@ def main() -> int:
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
     ap.add_argument("--fix-rule", default="",
-                    help="WP45 causal FIX label t_idx,F,t2_idx,F2,M,B (the "
-                         "fix_rule_loro.py grammar): the .pos status and the "
+                    help="WP45 causal FIX label t_idx,F,t2_idx,F2,M,B[,Q] "
+                         "(the fix_rule_loro.py grammar; Q vetoes labels while "
+                         "the DDPR quality exceeds it): the .pos status and the "
                          "npz `rule_fix` column use it; positions and the "
                          "PF are unchanged. Empty = the PF's own fix flag")
     ap.add_argument("--band-priority", default="",
@@ -833,6 +840,11 @@ def main() -> int:
         print(f"WP45: wrote {len(row_epochs)} epochs of DD rows to {rows_path}")
     print(f"Wrote {pos_path} and {npz_path}")
 
+    print(f"Motion factors (phase-2 epochs): Doppler velocity "
+          f"{getattr(rtk, '_doppler_fire_count', 0)}, NHC "
+          f"{getattr(rtk, '_nhc_fire_count', 0)}, ZUPT "
+          f"{getattr(rtk, '_zupt_fire_count', 0)}, phase-2 epochs "
+          f"{getattr(rtk, 'epoch2', 0)}")
     # window summary (gate quick-look; official numbers via analyze script)
     e = np.asarray(cols["err3d"])
     sm = np.asarray(cols["smode"])

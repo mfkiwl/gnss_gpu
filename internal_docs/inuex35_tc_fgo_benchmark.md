@@ -573,6 +573,64 @@ Caveats:
   (`ddpr_qual > 1.0`) clears the Nagoya 3 spans (wrong 0.00 / 0.00 /
   0.29%) but not Nagoya 2.
 
+### WP48 (2026-10-13): shared-graph measurement model
+
+**Where the FIX rate is lost (WP47, 3 seeds).** On Tokyo, epochs within
+5 cm of the reference are already almost all labelled FIX: Tokyo 1 has
+56.9% correct FIX, 56.0% within 5 cm, 68.4% within 10 cm, 80.5% within
+50 cm. Label changes alone gain little. An agreement-fraction term (`>= 90%`
+of at least 8 pairs) adds 0.3–1.4 pp held out. A gradient-boosting
+classifier on 60+ causal PF features, nested leave-one-run-out, labels
+fewer fixes than the rule at the same wrong-FIX cap (Tokyo 1: 52.3 vs
+56.9%). The rest is epochs the filter does not resolve: Tokyo 1 10.8% at
+0.1–0.5 m and 18.7% at 0.5 m or more (tunnel), Nagoya 2 / 3 39% / 34% at
+0.5 m or more, with the shared float more than 1 m off in about 30% of
+epochs.
+
+**Doppler.** The Doppler velocity prior (tc/'s LS, isotropic 0.5 m/s)
+was worse than it looked. Against the reference velocity (first 3500
+epochs), its horizontal error had p95 2.0 m/s and a vertical bias of
+-0.40 m/s (Tokyo 1) / +0.36 m/s (Nagoya 2). Per-satellite residuals traced
+it to the BeiDou GEO satellites (C01–C05, C59/C60), whose Doppler is
+3–22 m/s off (their broadcast-orbit velocity). Every other system agrees
+within a MAD of 0.03–0.10 m/s. The prior was also applied to the body
+velocity without the lever-arm rotation term. Tightening the old prior's
+sigma to 0.2 / 0.1 m/s cost up to 6 pp. `DOP_V2=1` drops GLONASS and
+BeiDou GEO, weights rows by C/N0, rejects residuals above 0.5 m/s, uses
+the solve's covariance, and removes the lever-arm term. The horizontal
+p95 becomes 0.37 m/s (Tokyo 1) and 0.50 m/s (Nagoya 2).
+
+Single-seed screening (Tokyo 1 / Nagoya 2 / Nagoya 3, WP47 label): Huber
+on DD-PR and DD-CP +0.5 / +2.3 / +0.4 pp; the C/N0 pseudorange term cuts
+the share of epochs with the float more than 1 m off (Nagoya 3:
+25.7 → 20.4%) with FIX about unchanged; Doppler v2 +0.8 / -0.8 / -1.4 pp.
+Each is within the Nagoya seed spread alone; together:
+
+| 3 seeds, WP47 label | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP47 correct FIX | 56.9% | 78.0% | 76.1% | 65.4% | 46.3% | 26.3% |
+| WP48 filter, correct FIX | 56.5% | 79.0% | 77.6% | 66.7% | 47.8% | 27.8% |
+| WP47 within 50 cm (all epochs) | 80.5% | 90.3% | 92.4% | 80.8% | 59.9% | 65.2% |
+| WP48 filter, within 50 cm | 84.9% | 92.0% | 95.0% | 85.1% | 60.2% | 73.4% |
+
+**Label.** Re-selected over the six runs × three seeds with every seed at
+or below 0.7% wrong: `5,15,5,15,0.1,5,1.0`, i.e. `nb_at[0.99] >= 15`, or
+`nb_at_ne[0.99] >= 15` with non-empty mass 0.1+, or the shared graph's
+LAMBDA fix with 5+, all vetoed while the DDPR quality exceeds 1.0 (new
+optional 7th `--fix-rule` field). A 1.0% per-seed cap would allow
+`3,15,3,15,0.1,5,1.0` (+1.1 pp mean, worst seed 0.99%); not taken.
+
+| WP48 (3 seeds), correct FIX (wrong / FIX per seed) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| correct FIX | 56.4% (0.01 / 0.01 / 0.01) | 78.7% (0.01 / 0.01 / 0.01) | 74.8% (0.03 / 0.03 / 0.03) | 66.5% (0.04 / 0.10 / 0.04) | 47.8% (0.62 / 0.55 / 0.46) | 27.4% (0.00 / 0.21 / 0.00) |
+| PPC OFFICIAL | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
+
+Leave-one-run-out (with the veto grid), the Nagoya 2 fold still picks a
+looser rule and labels 5.5% of its fixes wrong; every other fold stays at
+or below 0.6% on the mean. Nagoya 2's self-consistent ~0.95 m basin
+(556840–556862 s) remains the open problem.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

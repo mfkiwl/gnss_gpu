@@ -28,7 +28,7 @@
 | PPC library FIX-rate | Tokyo 54.36% / Nagoya 69.38%（false 3 / 0） | WP176 satellite-PAR surplus、default-off route | `internal_docs/wp176_fix_rate_final_2026_07_31.md` |
 | PPC GNSS-only MultiSD-FGO | Tokyo 52.29% / Nagoya 70.30%、false 0 | dual-holdout。WLNL oracle 天井 52.72/70.36% → GNSS-only で 70/80% は不可 | `internal_docs/multisd_fgo_ppc_research_2026_08_01.md` |
 | PF-only RTK（v0.3） | Tokyo `<50cm` 46.5112%、FIX 10.87%；Nagoya FIX 18.07% | Tokyo run1 は operational audit（virgin holdout ではない） | `RELEASE_NOTES_v0.3.0.md`, `README.md` |
-| RB-FGO-PF（正しい FIX / 誤 FIX、3 シード） | WP47: 東京 56.9 / 78.0 / 76.1%、名古屋 65.4 / 46.3 / 26.3%（誤 FIX は全 run・全シードで 1% 以下、最悪は名古屋 2 の 0.99%）。WP46 は名古屋 3 で 12.3%（誤 6.2%）。東京のみで選んだ WP45 は 66.6 / 83.9 / 84.3% だが名古屋 2/3 で誤 8.5/16.2% | libgnss++ KF-RTK（68.0/76.7/71.6%、誤 8.76/1.80/3.01%）・GTSAM FGO・inuex35 を同一採点で上回る（D-043）。runtime は `experiments/rbpf_fgo/`（2026-10-06 に `repro_tc_fgo` から凍結コピー、WP43 で default-off の option を追加） | `internal_docs/inuex35_tc_fgo_benchmark.md` |
+| RB-FGO-PF（正しい FIX / 誤 FIX、3 シード） | WP48: 東京 56.4 / 78.7 / 74.8%、名古屋 66.5 / 47.8 / 27.4%（誤 FIX は全 run・全シードで 0.7% 以下、最悪 0.62%）。PPC OFFICIAL 東京 84.3 / 93.8 / 91.8%、名古屋 74.5 / 56.1 / 78.8%。WP46 は名古屋 3 で 12.3%（誤 6.2%）。東京のみで選んだ WP45 は 66.6 / 83.9 / 84.3% だが名古屋 2/3 で誤 8.5/16.2% | libgnss++ KF-RTK（68.0/76.7/71.6%、誤 8.76/1.80/3.01%）・GTSAM FGO・inuex35 を同一採点で上回る（D-043）。runtime は `experiments/rbpf_fgo/`（2026-10-06 に `repro_tc_fgo` から凍結コピー、WP43 で default-off の option を追加） | `internal_docs/inuex35_tc_fgo_benchmark.md` |
 | GSDC2023 Kaggle | best v13 public 3.224 / private 3.783 m | 2026-06-10 以降 GSDC commit なし | `docs/gsdc2023_solution.md` |
 | UrbanNav Odaiba | PF100K P50 1.36 m / RMS 4.11 m（RTKLIB 2.67 / 13.08 m） | external mainline は PF+RobustClear-10K RMS 66.6 m（D-029） | `README.md` |
 | PF3D-BVH on real UrbanNav | all-LOS RMS 2D 37.63 m、NLOS 枝付きは 80–85 m | Odaiba G-only 300 epoch 診断 | `decisions.md` D-037 |
@@ -75,7 +75,7 @@
 5. PF-only に virgin holdout が無い（Tokyo run1 は operational audit）。
 5a. ~~RB-FGO-PF の精度を GPU 化に見合う水準へ~~（2026-10-10 WP43、D-042）。
 5c. ~~RB-FGO-PF の FIX 率を誤 FIX 1% 以下で SOTA 水準へ~~（2026-10-12 WP45、D-043）。名古屋で検証した結果、ラベル規則を 6 run で選び直した（WP46、D-044）。
-5d. ~~RB-FGO-PF: 名古屋 3（栄）の誤った整数の固定~~（2026-10-13 WP47、D-045: 1 バンド衛星を code のみで使い、残差を基準衛星に付けない。名古屋 3 は 26.3%、誤 0.5%）。残: 名古屋 2 の 556840–556862 s で浮動解ごと約 1 m ずれた basin（最悪シード 0.99%、leave-one-run-out では名古屋 2 の fold が弱い）。
+5d. ~~RB-FGO-PF: 名古屋 3（栄）の誤った整数の固定~~（2026-10-13 WP47、D-045: 1 バンド衛星を code のみで使い、残差を基準衛星に付けない。名古屋 3 は 26.3%、誤 0.5%）。WP48（D-046）で共有グラフの測定モデル（ドップラー、Huber、C/N0）を直し、OFFICIAL を全 run で 1〜8 pp 上げた。残: 名古屋 2 の 556840–556862 s で浮動解ごと約 1 m ずれた basin（最悪シード 0.99%、leave-one-run-out では名古屋 2 の fold が弱い）。
    - 出力を lineage ごとの IMU 予測付き追跡位置と、捨てたエポックの IMU 推測航法の穴埋めに変えた。3 シードで `<50cm_full%` +3.0/+3.7/+4.8 pp。
    - 計算量はほぼ増えず、CPU で 2.1 倍速。N = 256 も、追跡位置を重みに入れる `RBPF_TRACK=1`（1 エポック約 500 solve）も効かなかった。よって GPU 化はまだ精度面で正当化できない。
    - 残る損失の主因: run1 のトンネル（搬送波なし、約 15 pp）と、DD ペア 6–15 の区間（float が 1–2 m ずれ、真の basin の 1 エポック尤度が負ける）。後者は候補供給ではなく、マルチパス下の測定モデルの問題（`RBPF_DBG4` 診断）。
