@@ -4171,25 +4171,10 @@ class GtsamRtkTc(GtsamRtk):
             # the body (IMU) velocity, v_ant = v_body + R_nb (w_b x l_b)
             v_dop_enu = v_dop_enu - np.asarray(rot_nb) @ np.cross(
                 np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
-        if os.environ.get('DBG_DOP_ROWS'):
-            from gnss_fgo.utils.ls_solvers import _doppler_build_rows as _dbr
-            from cssrlib.gnss import time2gpst as _t2g
-            _A, _b = _dbr(obs, obs_sd, rs, vs, iu, sat, pos_pred_ecef, self.nav.nf,
-                          lambda o, s_: _get_wavelengths(self.nav, o, s_), vel_pred_ecef)
-            _tw = _t2g(obs.t)[1]; _k = 0
-            for _si, _io in enumerate(iu):
-                _s = int(sat[_si])
-                if sat2prn(_s)[0] == uGNSS.GLO or not np.any(obs.D[_io, :] != 0):
-                    continue
-                if _k < len(_b):
-                    print('DOPR %.1f %d %.6f %.6f %.6f %.4f %.1f' % (
-                        _tw, _s, *(self.R_enu2ecef.T @ _A[_k, :3]), _b[_k],
-                        float(obs.S[_io, 0])), flush=True)
-                _k += 1
         if os.environ.get('DBG_DOP'):
-            from cssrlib.gnss import time2gpst as _t2g
-            print('DOPV %.1f %.4f %.4f %.4f %.3f %d' % (
-                _t2g(obs.t)[1], *v_dop_enu, dop_res, _dop_n), flush=True)
+            ve, vn, vu = v_dop_enu
+            print(f'DOPV {time2gpst(obs.t)[1]:.1f} {ve:.4f} {vn:.4f} {vu:.4f} '
+                  f'{dop_res:.3f} {_dop_n}', flush=True)
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_dop_enu,
             gtsam.noiseModel.Isotropic.Sigma(3, sigma)))
@@ -4271,9 +4256,11 @@ class GtsamRtkTc(GtsamRtk):
             v_enu = v_enu - np.asarray(rot_nb) @ np.cross(
                 np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
         if os.environ.get('DBG_DOP'):
-            print('DOPV %.1f %.4f %.4f %.4f %.3f %d %.3f %.3f %.3f' % (
-                time2gpst(obs.t)[1], *v_enu, float(np.sqrt(np.mean(rk ** 2))), n,
-                *np.sqrt(np.diag(cov_enu))), flush=True)
+            ve, vn, vu = v_enu
+            se, sn, su = np.sqrt(np.diag(cov_enu))
+            rms = float(np.sqrt(np.mean(rk ** 2)))
+            print(f'DOPV {time2gpst(obs.t)[1]:.1f} {ve:.4f} {vn:.4f} {vu:.4f} '
+                  f'{rms:.3f} {n} {se:.3f} {sn:.3f} {su:.3f}', flush=True)
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_enu, gtsam.noiseModel.Gaussian.Covariance(cov_enu)))
         self._doppler_fire_count += 1
