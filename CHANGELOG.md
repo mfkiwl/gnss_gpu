@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP47** (`experiments/rbpf_fgo/`): Nagoya 3. Too few
+  satellites kept both bands in Sakae, so the shared graph often had too few
+  carrier pairs. `run_ship.sh` now keeps satellites with one usable band as
+  code-only rows (`QC_ANY_BAND`, `QC_ANY_BAND_CODE_ONLY`,
+  `QC_ANY_BAND_PR_SCALE=10`), puts both receivers on a 10° mask
+  (`QC_BASE_MASK`, `ELMIN_DEG=10`), and re-selects the label over all six
+  runs (`--fix-rule 5,15,3,99,0.1,9`). One-band satellites are never the DD
+  reference, and their pair residuals are charged to them alone. Charging
+  them to the reference as well gated or quarantined the reference and cost
+  Tokyo 1 up to 12 pp. Correct FIX (3 seeds): Tokyo 56.9 / 78.0 / 76.1%,
+  Nagoya 65.4 / 46.3 / 26.3%. Wrong FIX stays at or below 1% of fixes on
+  every run and seed (worst 0.99%, Nagoya 2). PPC OFFICIAL on Nagoya 3 goes
+  from 20.2% to 71.0%, and on Tokyo 3 from 90.4% to 88.3%.
+  `RBPF_SHIP=wp46` reproduces the previous release.
 - **RB-FGO-PF WP46** (`experiments/rbpf_fgo/`): validated on Nagoya. WP45's
   Tokyo-selected FIX label marked 8.5% / 16.2% of Nagoya 2 / 3 fixes wrong.
   `run_ship.sh` now ships a label rule selected leave-one-run-out over Tokyo

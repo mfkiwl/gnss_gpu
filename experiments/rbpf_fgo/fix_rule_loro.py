@@ -61,6 +61,10 @@ GRID = list(itertools.product(
 WIT_D = (0.0, 0.05, 0.1, 0.2)  # witness agreement radius (0 = off)
 AFV = ((2.0, 0), (0.95, 8), (0.95, 10), (0.95, 12), (0.9, 12),
        (0.9, 16))                # (A, AN); A > 1 = off
+# --guards: extra vetoes on every label (WP47): code-only DDPR quality at
+# most QMAX, at least NPMIN PF pairs, non-empty mass at least NMMIN
+GUARDS = list(itertools.product((99.0, 1.0, 0.8, 0.6), (0, 16, 20, 24),
+                                (0.0, 0.9)))
 
 
 GUARD_M = float(__import__("os").environ.get("FIX_RULE_GUARD_M", "5.0"))
@@ -115,11 +119,15 @@ def prepare(d, run, data_root, witness=None, afv=None, city=None):
             "base_nb": np.asarray(d["base_nb"]),
             "shipped": (np.asarray(d["smode"]) == 4) & (np.asarray(d["rb_nb"]) >= 12),
             "wit_d": wit_d,
+            "ddpr_qual": np.asarray(d.get("rb_ddpr_qual", np.full(len(e), np.nan)),
+                                    dtype=float),
+            "npairs": np.asarray(d["rb_npairs"]),
             "afv_n": afv[0] if afv is not None else np.zeros(len(e), int),
             "afv_frac": afv[1] if afv is not None else np.full(len(e), np.nan)}
 
 
-def apply(p, t, f, t2, f2, m, b, wd=0.0, av=2.0, an=0):
+def apply(p, t, f, t2, f2, m, b, wd=0.0, av=2.0, an=0,
+          qmax=99.0, npmin=0, nmmin=0.0):
     fx = p["pf_ok"] & (p["nb_at"][:, t] >= f)
     fx |= p["pf_ok"] & (p["nb_at_ne"][:, t2] >= f2) & (p["ne_mass"] >= m)
     fx |= p["base_fix"] & (p["base_nb"] >= b)
@@ -128,6 +136,14 @@ def apply(p, t, f, t2, f2, m, b, wd=0.0, av=2.0, an=0):
     if av <= 1.0:
         with np.errstate(invalid="ignore"):
             fx |= p["pf_ok"] & (p["afv_frac"] >= av) & (p["afv_n"] >= an)
+    if qmax < 99:
+        with np.errstate(invalid="ignore"):
+            fx &= ~(p["ddpr_qual"] > qmax)
+    if npmin > 0:
+        fx &= p["npairs"] >= npmin
+    if nmmin > 0:
+        with np.errstate(invalid="ignore"):
+            fx &= p["ne_mass"] >= nmmin
     return fx & p["ok"]
 
 
@@ -140,6 +156,7 @@ def describe(g):
     t, f, t2, f2, m, b = g[:6]
     wd = g[6] if len(g) > 6 else 0.0
     av, an = (g[7], g[8]) if len(g) > 8 else (2.0, 0)
+    qmax, npmin, nmmin = g[9:12] if len(g) > 11 else (99.0, 0, 0.0)
     s = f"nb_at[{NB_AT_THRESH[t]}]>={f}"
     if f2 < 99:
         s += f" | nb_at_ne[{NB_AT_THRESH[t2]}]>={f2}&ne_mass>={m}"
@@ -149,6 +166,12 @@ def describe(g):
         s += f" | witness FIX within {wd} m"
     if av <= 1.0:
         s += f" | afv_frac>={av}&n>={an}"
+    if qmax < 99:
+        s += f"; veto ddpr_qual>{qmax}"
+    if npmin > 0:
+        s += f"; need npairs>={npmin}"
+    if nmmin > 0:
+        s += f"; need ne_mass>={nmmin}"
     return s
 
 
@@ -168,6 +191,9 @@ def main():
     ap.add_argument("--afv", action="store_true",
                     help="add the ambiguity-function term (needs RBPF_AFV=1 "
                          "runs, or runN_rows.npz from RBPF_DUMP_ROWS=1)")
+    ap.add_argument("--guards", action="store_true",
+                    help="add the WP47 veto grid (DDPR quality, PF pair "
+                         "count, non-empty mass)")
     ap.add_argument("--witness-pos", default=None,
                     help="independent RTK .pos per run, '{run}' is replaced "
                          "(adds the witness-agreement radius D to the grid)")
@@ -213,7 +239,10 @@ def main():
              float(vals[4]), int(vals[5]),
              float(vals[6]) if len(vals) > 6 else 0.0,
              float(vals[7]) if len(vals) > 7 else 2.0,
-             int(vals[8]) if len(vals) > 8 else 0)
+             int(vals[8]) if len(vals) > 8 else 0,
+             float(vals[9]) if len(vals) > 9 else 99.0,
+             int(vals[10]) if len(vals) > 10 else 0,
+             float(vals[11]) if len(vals) > 11 else 0.0)
         print("rule:", describe(g))
         for r, lst in runs.items():
             if lst:
@@ -226,7 +255,9 @@ def main():
         best = None
         wds = WIT_D if a.witness_pos else (0.0,)
         afvs = AFV if a.afv else ((2.0, 0),)
-        grid = [g + (wd,) + av for g in GRID for wd in wds for av in afvs]
+        gds = GUARDS if a.guards else ((99.0, 0, 0.0),)
+        grid = [g + (wd,) + av + gd for g in GRID for wd in wds
+                for av in afvs for gd in gds]
         for g in grid:
             tot = 0.0
             feasible = True
