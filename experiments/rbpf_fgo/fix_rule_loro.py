@@ -52,7 +52,7 @@ from rbpf_fgo import NB_AT_THRESH
 
 GRID = list(itertools.product(
     (3, 4, 5),            # t index  (0.95, 0.98, 0.99)
-    (5, 9, 12),           # F
+    (5, 9, 12, 15),       # F
     (3, 5),               # t2 index (0.95, 0.99)
     (12, 15, 99),         # F2 (99 = off)
     (0.1, 0.3),           # M

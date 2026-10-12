@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP46** (`experiments/rbpf_fgo/`): validated on Nagoya. WP45's
+  Tokyo-selected FIX label marked 8.5% / 16.2% of Nagoya 2 / 3 fixes wrong.
+  `run_ship.sh` now ships a label rule selected leave-one-run-out over Tokyo
+  1–3 and Nagoya 1–2 (`--fix-rule 3,15,3,15,0.1,99`). Correct FIX (3 seeds):
+  Tokyo 56.1 / 76.4 / 75.8%, Nagoya 61.0 / 46.5 / 12.3%. Wrong FIX stays at
+  or below 0.37% of fixes on every seed except Nagoya 3 (6.2%). Positions
+  are unchanged. Also added: `PPC_CITY=nagoya` (lever arm and scorers),
+  `fix_rule_loro.py --set city:run:prefix`, and the default-off shared-graph
+  QC options `QC_BASE_MASK` and `QC_ANY_BAND`. `RBPF_SHIP=wp45` reproduces
+  the previous label.
 - **RB-FGO-PF WP45** (`experiments/rbpf_fgo/`): `run_ship.sh` now runs one
   configuration on all runs. The runner requests two bands per satellite.
   With three, cssrlib dropped every satellite without L5, and BeiDou used

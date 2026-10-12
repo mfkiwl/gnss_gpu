@@ -116,6 +116,17 @@ runs; the run1-only recovery flags of WP43/WP18 are not used.
 | `--env RBPF_DUMP_ROWS=1` | diagnostic: every phase-observed DD row of each epoch with the MAP basin's integer and agreement mass (`runN_rows.npz`) |
 | `--env RBPF_TRACK_PROBATION_S=s` | `RBPF_TRACK=1` only: score on the loose float prior for `s` seconds after a belief reset. Not adopted |
 
+WP46 (2026-10-12) ships a stricter label, `--fix-rule 3,15,3,15,0.1,99`,
+selected over Tokyo 1–3 and Nagoya 1–2 (`RBPF_SHIP=wp45` keeps the
+Tokyo-selected `3,5,3,12,0.1,5`). Other WP46 additions:
+
+| option | effect |
+|---|---|
+| `PPC_CITY=nagoya` | `run_ship.sh` passes the Nagoya lever arm (`LEVER_ARM=0.593,0.670,1.216`, body FLU); the scorers read Nagoya references |
+| `--env QC_BASE_MASK=1` | apply the rover elevation / C/N0 masks to the base QC too (cssrlib copies the base Nav before they are set, so `ELMIN_DEG` below 15° had no effect). Default off |
+| `--env QC_ANY_BAND=1` | keep a satellite with at least one usable band and blank only the failed bands. Default off |
+| `fix_rule_loro.py --set city:run:prefix` | leave-one-run-out over any mix of Tokyo and Nagoya runs |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;

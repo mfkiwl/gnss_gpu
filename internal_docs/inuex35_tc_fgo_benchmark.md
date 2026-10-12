@@ -449,9 +449,29 @@ Nagoya lever arm (`--env LEVER_ARM=0.593,0.670,1.216`, FLU), 3 seeds:
   costs Tokyo run1 10 pp. Combined with mask 10° it gives nagoya3 26.8%
   (0.57%) on one seed. Not adopted.
 
-Open: the label alone cannot hold ≤ 1% wrong FIX on nagoya2/3. The wrong
-basins in narrow streets need a filter-level fix. The shipped WP45 rule
-should not be presented as validated outside Tokyo.
+**Shipped WP46 label (rule reselection).** Leave-one-run-out over Tokyo
+1–3 and Nagoya 1–2 (Nagoya 3 excluded, no rule holds it), 3 seeds, grid
+extended to F = 15, training cap 0.7%. Four of the five folds select
+`nb_at[0.95] >= 15 or (nb_at_ne[0.95] >= 15 and ne_mass >= 0.1)` (no
+shared-graph term). The fold that holds out Nagoya 2 has no hard run in its
+training set and selects WP45's rule again (Nagoya 2 then 8.53% wrong).
+`run_ship.sh` now ships the four-fold rule:
+
+| WP46 label, 3 seeds | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| correct FIX | 56.1% | 76.4% | 75.8% | 61.0% | 46.5% | 12.3% |
+| wrong / FIX (worst seed) | 0.02% (0.04) | 0.02% (0.06) | 0.00% (0.01) | 0.03% (0.06) | 0.21% (0.37) | 6.15% (8.12) |
+
+With a 1.0% cap the folds pick `nb_at[0.98] >= 12 or (nb_at_ne[0.95] >= 15
+and ne_mass >= 0.1)`. That gives 59.9 / 78.9 / 78.6 / 65.1 / 48.2%, but
+Nagoya 2 reaches 1.45% on its worst seed, so it is not shipped. The
+stricter label costs Tokyo 8–10 pp of correct FIX against WP45. Positions,
+PPC OFFICIAL and `<50cm_full%` are unchanged.
+
+Open: Nagoya 3 locks wrong basins with high agreement mass (6.2% wrong
+even under the strictest label). That needs a filter-level fix: the
+satellite set (mask 10°, one-band satellites) over several seeds, and the
+metre-level float drift in narrow streets.
 
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
