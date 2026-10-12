@@ -46,13 +46,13 @@ import numpy as np
 
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE))
-from fix_rules import errors
+from fix_rules import CITY, errors
 from fix_witness import afv_features
 from rbpf_fgo import NB_AT_THRESH
 
 GRID = list(itertools.product(
     (3, 4, 5),            # t index  (0.95, 0.98, 0.99)
-    (5, 9, 12),           # F
+    (5, 9, 12, 15),       # F
     (3, 5),               # t2 index (0.95, 0.99)
     (12, 15, 99),         # F2 (99 = off)
     (0.1, 0.3),           # M
@@ -84,8 +84,8 @@ def load_witness(path, d):
     return fx, xyz
 
 
-def prepare(d, run, data_root, witness=None, afv=None):
-    e, n = errors(d, run, data_root)
+def prepare(d, run, data_root, witness=None, afv=None, city=None):
+    e, n = errors(d, run, data_root, city)
     ok = np.isfinite(e) & (np.asarray(d["smode"]) != 6)
     # the PF's own FIX-output guards (RBPF_FIX_MAX_DPR = 5 m and the
     # float / DDPR / fix vote 6 m / 3.5 m), applied to the reported
@@ -154,7 +154,12 @@ def describe(g):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("prefixes", nargs="+")
+    ap.add_argument("prefixes", nargs="*",
+                    help="result prefixes P scored on P_r{1,2,3} of PPC_CITY")
+    ap.add_argument("--set", action="append", default=[],
+                    help="city:run:prefix (repeatable): score results/"
+                         "<prefix>_r<run> on that city's run; with --set the "
+                         "folds are every (city, run) given")
     ap.add_argument("--data-root", type=Path, required=True)
     ap.add_argument("--results", type=Path, default=_HERE / "results")
     ap.add_argument("--cap", type=float, default=0.7)
@@ -167,20 +172,24 @@ def main():
                     help="independent RTK .pos per run, '{run}' is replaced "
                          "(adds the witness-agreement radius D to the grid)")
     a = ap.parse_args()
-    runs = {1: [], 2: [], 3: []}
-    for pre in a.prefixes:
-        for r, lst in runs.items():
-            path = a.results / f"{pre}_r{r}" / f"run{r}.npz"
-            if path.exists():
-                d = dict(np.load(path))
-                wit = (load_witness(a.witness_pos.format(run=r), d)
-                       if a.witness_pos else None)
-                afv = None
-                if a.afv:   # in-run RBPF_AFV=1 columns, else the row dump
-                    afv = ((d["rb_afv_n"], d["rb_afv_frac"])
-                           if "rb_afv_n" in d and np.any(d["rb_afv_n"] > 0)
-                           else afv_features(path))
-                lst.append(prepare(d, r, a.data_root, wit, afv))
+    sources = [(CITY, r, pre) for pre in a.prefixes for r in (1, 2, 3)]
+    sources += [(c, int(r), pre) for c, r, pre in
+                (x.split(":") for x in a.set)]
+    runs = {}
+    for city, r, pre in sources:
+        key = f"{city}/run{r}" if a.set else r
+        lst = runs.setdefault(key, [])
+        path = a.results / f"{pre}_r{r}" / f"run{r}.npz"
+        if path.exists():
+            d = dict(np.load(path))
+            wit = (load_witness(a.witness_pos.format(run=r), d)
+                   if a.witness_pos else None)
+            afv = None
+            if a.afv:   # in-run RBPF_AFV=1 columns, else the row dump
+                afv = ((d["rb_afv_n"], d["rb_afv_frac"])
+                       if "rb_afv_n" in d and np.any(d["rb_afv_n"] > 0)
+                       else afv_features(path))
+            lst.append(prepare(d, r, a.data_root, wit, afv, city))
 
     def report(r, g, tag):
         rows = []
@@ -193,7 +202,8 @@ def main():
         mean = v.mean(axis=0)
         sd = v.std(axis=0, ddof=1) if len(v) > 1 else np.zeros(4)
         per_seed = " ".join(f"{x[0]:.1f}/{x[1]:.2f}" for x in v)
-        print(f"run{r} {tag}: correct {mean[0]:.1f}±{sd[0]:.1f}% "
+        name = r if isinstance(r, str) else f"run{r}"
+        print(f"{name} {tag}: correct {mean[0]:.1f}±{sd[0]:.1f}% "
               f"wrong/fix {mean[1]:.2f}% (seeds: {per_seed})  "
               f"| shipped {mean[2]:.1f}% / {mean[3]:.2f}%")
 
@@ -209,7 +219,7 @@ def main():
             if lst:
                 report(r, g, "fixed rule")
         return
-    for held in (1, 2, 3):
+    for held in list(runs):
         train = [r for r in runs if r != held and runs[r]]
         if not runs[held] or not train:
             continue
@@ -233,9 +243,9 @@ def main():
             if feasible and (best is None or tot > best[0]):
                 best = (tot, g)
         if best is None:
-            print(f"held-out run{held}, trained on {train}: no rule meets the cap")
+            print(f"held-out {held}, trained on {train}: no rule meets the cap")
             continue
-        print(f"held-out run{held}, trained on {train}: {describe(best[1])}")
+        print(f"held-out {held}, trained on {train}: {describe(best[1])}")
         report(held, best[1], "held-out")
 
 

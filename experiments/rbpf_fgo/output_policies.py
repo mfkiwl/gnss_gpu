@@ -36,6 +36,9 @@ from pathlib import Path
 
 import numpy as np
 
+# PPC city of the scored runs (tokyo | nagoya)
+CITY = __import__("os").environ.get("PPC_CITY", "tokyo")
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 from score_vs_inuex35 import (
@@ -119,7 +122,7 @@ def apply_policy(d, policy, nb_floor=12, hold_s=10.0, interp_s=30.0,
 def score(d, run, ref, xyz, fix, keep):
     epochs = [TrajectoryEpoch(tow=float(t), ecef=x, is_fix=bool(f))
               for t, x, f, k in zip(d["tow"], xyz, fix, keep) if k]
-    return score_trajectory(epochs, ref, city="tokyo", run=f"run{run}",
+    return score_trajectory(epochs, ref, city=CITY, run=f"run{run}",
                             traj_path=Path("."), fmt="npz")
 
 
@@ -134,7 +137,7 @@ def main():
     ap.add_argument("--trk-mass", type=float, default=0.0)
     a = ap.parse_args()
     pols = a.policies.split(",")
-    refs = {r: load_reference_grid("tokyo", f"run{r}", data_root=a.data_root)
+    refs = {r: load_reference_grid(CITY, f"run{r}", data_root=a.data_root)
             for r in (1, 2, 3)}
     agg = defaultdict(lambda: defaultdict(list))
     print(f"{'prefix':14s} run " + " ".join(f"{p:>15s}" for p in pols)

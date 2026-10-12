@@ -411,6 +411,68 @@ x:<run>:results/<name>/run<run>.pos:pos`. The rule selection is
 `python fix_rule_loro.py <prefixes>` on runs that carry the WP44
 diagnostics.
 
+### Nagoya validation of WP45 (WP46, 2026-10-12) — does not transfer
+
+WP45 was selected on Tokyo only. Nagoya, same configuration with the
+Nagoya lever arm (`--env LEVER_ARM=0.593,0.670,1.216`, FLU), 3 seeds:
+
+| Correct FIX (wrong / FIX) | nagoya1 | nagoya2 | nagoya3 |
+|---|---:|---:|---:|
+| WP45 label rule (`3,5,3,12,0.1,5`) | 69.3% (0.70%) | 53.4% (**8.53%**) | 18.5% (**16.2%**) |
+| strictest grid rule (`5,12,5,99,0.1,99`, ≈ `nb >= 12`) | 64.1% (0.00%) | 47.5% (0.77%) | 14.9% (**6.76%**) |
+| libgnss++ KF-RTK, raw (same `ppc-demo` flags as Tokyo) | 64.9% (14.8%) | 48.6% (2.15%) | 29.8% (29.4%) |
+
+- The WP45 term `nb_at[0.95] >= 5` is wrong on 9.7% (nagoya2) and
+  11.8% (nagoya3) of the epochs it labels. A leave-one-run-out over all six
+  runs (`fix_rule_loro.py --set city:run:prefix`) finds no grid rule that
+  keeps every training run at ≤ 0.7% wrong: nagoya3 locks wrong basins
+  with high agreement mass. Its misses have a median 12 satellites in the
+  graph against 17 in libgnss++ KF-RTK, and the PF position is off by a
+  median 5.3 m there.
+- **Reference offset, not a model error.** At the Nagoya reference
+  position only 32–44% of DD carrier rows sit within 0.1 cycle of an
+  integer (Tokyo 73–78%). The L2/L1 residual ratio is 1.0, so this is not
+  ionosphere. A Saastamoinen differential troposphere, a constant
+  base-coordinate offset and the base-epoch age (1 Hz base) do not explain
+  it either. A per-epoch 3D offset absorbs it (2.8 → 0.9 cm residual). The
+  carrier-consistent antenna lies about 4 cm to the vehicle's left of the
+  reference point and about 4 cm below it, consistently over runs. The
+  reference point is therefore offset from the antenna phase centre by a
+  few cm. That is far below the 0.5 m FIX threshold.
+- **Elevation mask did not reach the filter.** cssrlib runs the base QC on
+  `base_nav`, copied before the rover masks are set, so `ELMIN_DEG` below
+  15° had no effect. `QC_BASE_MASK=1` applies it. Mask 10° (seed 20260710)
+  gives nagoya1 67.3% (0.00%), nagoya2 47.0% (4.04%), nagoya3 18.2%
+  (3.75%) and Tokyo run1 59.4% (0.00%) under the strict rule. The result is
+  mixed, and Nagoya seeds spread by 7 pp, so it is not adopted on one seed.
+- **`QC_ANY_BAND=1`** keeps satellites with one usable band. On its own it
+  costs Tokyo run1 10 pp. Combined with mask 10° it gives nagoya3 26.8%
+  (0.57%) on one seed. Not adopted.
+
+**Shipped WP46 label (rule reselection).** Leave-one-run-out over Tokyo
+1–3 and Nagoya 1–2 (Nagoya 3 excluded, no rule holds it), 3 seeds, grid
+extended to F = 15, training cap 0.7%. Four of the five folds select
+`nb_at[0.95] >= 15 or (nb_at_ne[0.95] >= 15 and ne_mass >= 0.1)` (no
+shared-graph term). The fold that holds out Nagoya 2 has no hard run in its
+training set and selects WP45's rule again (Nagoya 2 then 8.53% wrong).
+`run_ship.sh` now ships the four-fold rule:
+
+| WP46 label, 3 seeds | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| correct FIX | 56.1% | 76.4% | 75.8% | 61.0% | 46.5% | 12.3% |
+| wrong / FIX (worst seed) | 0.02% (0.04) | 0.02% (0.06) | 0.00% (0.01) | 0.03% (0.06) | 0.21% (0.37) | 6.15% (8.12) |
+
+With a 1.0% cap the folds pick `nb_at[0.98] >= 12 or (nb_at_ne[0.95] >= 15
+and ne_mass >= 0.1)`. That gives 59.9 / 78.9 / 78.6 / 65.1 / 48.2%, but
+Nagoya 2 reaches 1.45% on its worst seed, so it is not shipped. The
+stricter label costs Tokyo 8–10 pp of correct FIX against WP45. Positions,
+PPC OFFICIAL and `<50cm_full%` are unchanged.
+
+Open: Nagoya 3 locks wrong basins with high agreement mass (6.2% wrong
+even under the strictest label). That needs a filter-level fix: the
+satellite set (mask 10°, one-band satellites) over several seeds, and the
+metre-level float drift in narrow streets.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

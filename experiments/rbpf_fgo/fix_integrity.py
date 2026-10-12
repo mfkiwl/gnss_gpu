@@ -31,6 +31,9 @@ from pathlib import Path
 
 import numpy as np
 
+# PPC city of the scored runs (tokyo | nagoya)
+CITY = __import__("os").environ.get("PPC_CITY", "tokyo")
+
 _HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(_HERE.parent))
 sys.path.insert(0, str(_HERE.parent.parent / "python"))
@@ -77,10 +80,10 @@ def integrity_tc(path, run, data_root):
     tv = np.where(ok[:, None], truth, np.nan)
     step = np.linalg.norm(np.diff(tv, axis=0), axis=1)
     seg[1:] = np.where(np.isfinite(step) & (step < 10.0), step, 0.0)
-    ref = load_reference_grid("tokyo", f"run{run}", data_root=data_root)
+    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
     ref_xyz = np.asarray([ref[t] for t in sorted(ref)])
     total = float(np.nansum(ppc_segment_distances(ref_xyz)))
-    n_rover = rover_epoch_count("tokyo", f"run{run}", ref)
+    n_rover = rover_epoch_count(CITY, f"run{run}", ref)
     e = np.linalg.norm(sol - truth, axis=1)
     f = fix & ok
     good = f & (e < 0.5)
@@ -95,13 +98,13 @@ def integrity_tc(path, run, data_root):
 
 
 def integrity(epochs, run, data_root):
-    ref = load_reference_grid("tokyo", f"run{run}", data_root=data_root)
+    ref = load_reference_grid(CITY, f"run{run}", data_root=data_root)
     ref_tows = np.asarray(sorted(ref))
     ref_xyz = np.asarray([ref[t] for t in ref_tows])
     seg = ppc_segment_distances(ref_xyz)
     seg_by_tow = dict(zip(ref_tows.tolist(), seg.tolist()))
     total = float(np.nansum(seg))
-    n_rover = rover_epoch_count("tokyo", f"run{run}", ref)
+    n_rover = rover_epoch_count(CITY, f"run{run}", ref)
     n_fix = n_ok = 0
     d_ok = d_bad = 0.0
     errs = []

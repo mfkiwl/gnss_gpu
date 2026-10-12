@@ -343,6 +343,18 @@ class GtsamRtk(rtkpos):
         # WP13l's shipped config is bit-identical without these flags).
         self.nav.elmin = np.deg2rad(float(os.environ.get('ELMIN_DEG', '15.0')))
         self.nav.cnr_min = float(os.environ.get('CNR_MIN_DBHZ', '25.0'))
+        # WP46: the base-station QC runs on `base_nav`, a copy of the Nav
+        # taken by rtkpos.__init__ BEFORE the two masks above are set, so a
+        # rover mask below cssrlib's default never took effect (the common
+        # satellite set needs both receivers). QC_BASE_MASK=1 copies them.
+        if int(os.environ.get('QC_BASE_MASK', '0')):
+            self.base_nav.elmin = self.nav.elmin
+            self.base_nav.cnr_min = self.nav.cnr_min
+        # WP46: cssrlib's qcedit drops a satellite when ANY of its nf bands
+        # fails (missing / low C/N0), so an urban satellite that keeps L1
+        # but loses L2 is discarded whole. QC_ANY_BAND=1 keeps it and blanks
+        # only the failed bands (their L/P are zeroed before differencing).
+        self.qc_any_band = int(os.environ.get('QC_ANY_BAND', '0'))
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -3391,6 +3403,26 @@ class GtsamRtk(rtkpos):
         if res_sq:
             self.main_ddpr_rms_sum += self.last_main_ddpr_rms
             self.main_ddpr_rms_n += 1
+
+    def qcedit(self, obs, rs, dts, svh, rr=None):
+        """cssrlib QC, optionally keeping satellites with at least one
+        usable band (QC_ANY_BAND, WP46)."""
+        sat = super().qcedit(obs, rs, dts, svh, rr=rr)
+        if not getattr(self, 'qc_any_band', 0):
+            return sat
+        nf = self.nav.nf
+        keep = []
+        for j, s_ in enumerate(np.asarray(obs.sat)):
+            s_ = int(s_)
+            edt = self.nav.edt[s_ - 1, :nf]
+            if np.all(edt > 0):
+                continue              # satellite-level failure or no band
+            for f in range(min(nf, obs.L.shape[1])):
+                if edt[f] > 0:
+                    obs.L[j, f] = 0.0
+                    obs.P[j, f] = 0.0
+            keep.append(s_)
+        return np.array(sorted(keep), dtype=int)
 
     def process(self, obs, cs=None, orb=None, bsx=None, obsb=None):
         if len(obs.sat) == 0:
