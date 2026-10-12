@@ -833,6 +833,11 @@ def main() -> int:
         print(f"WP45: wrote {len(row_epochs)} epochs of DD rows to {rows_path}")
     print(f"Wrote {pos_path} and {npz_path}")
 
+    print(f"Motion factors (phase-2 epochs): Doppler velocity "
+          f"{getattr(rtk, '_doppler_fire_count', 0)}, NHC "
+          f"{getattr(rtk, '_nhc_fire_count', 0)}, ZUPT "
+          f"{getattr(rtk, '_zupt_fire_count', 0)}, phase-2 epochs "
+          f"{getattr(rtk, 'epoch2', 0)}")
     # window summary (gate quick-look; official numbers via analyze script)
     e = np.asarray(cols["err3d"])
     sm = np.asarray(cols["smode"])
