@@ -359,6 +359,10 @@ class GtsamRtk(rtkpos):
         # band (0 = always). Open sky keeps the dual-band set; narrow
         # streets (Nagoya 3) add the one-band satellites.
         self.qc_any_band_max_full = int(os.environ.get('QC_ANY_BAND_MAX_FULL', '0'))
+        # WP47: a one-band satellite is kept only when its surviving band's
+        # C/N0 reaches this [dB-Hz] (0 = any): in streets the band left
+        # behind is often a diffracted / reflected L1
+        self.qc_any_band_cnr = float(os.environ.get('QC_ANY_BAND_CNR', '0'))
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -3424,6 +3428,10 @@ class GtsamRtk(rtkpos):
             edt = self.nav.edt[s_ - 1, :nf]
             if np.all(edt > 0):
                 continue              # satellite-level failure or no band
+            if np.any(edt > 0) and self.qc_any_band_cnr > 0:
+                good = [f for f in range(min(nf, obs.S.shape[1])) if edt[f] == 0]
+                if min(float(obs.S[j, f]) for f in good) < self.qc_any_band_cnr:
+                    continue
             for f in range(min(nf, obs.L.shape[1])):
                 if edt[f] > 0:
                     obs.L[j, f] = 0.0
