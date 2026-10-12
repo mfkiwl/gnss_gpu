@@ -363,7 +363,8 @@ def main() -> int:
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
         "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
         "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
-        "rb_ne_mass", "rule_fix") + _FCOLS}
+        "rb_ne_mass", "rule_fix", "rb_wl_n", "rb_wl_ratio", "rb_wl_rms",
+        "wl_xyz") + _FCOLS}
     fix_rule = (tuple(float(x) for x in args.fix_rule.split(","))
                 if args.fix_rule else None)
     pos_rows = []
@@ -460,6 +461,10 @@ def main() -> int:
             rb_afv_n=np.asarray(cols["rb_afv_n"], dtype=int),
             rb_afv_frac=np.asarray(cols["rb_afv_frac"], dtype=float),
             rule_fix=np.asarray(cols["rule_fix"], dtype=int),
+            rb_wl_n=np.asarray(cols["rb_wl_n"], dtype=int),
+            rb_wl_ratio=np.asarray(cols["rb_wl_ratio"], dtype=float),
+            rb_wl_rms=np.asarray(cols["rb_wl_rms"], dtype=float),
+            wl_xyz=np.asarray(cols["wl_xyz"], dtype=float),
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
@@ -706,6 +711,15 @@ def main() -> int:
         cols["rb_afv_n"].append(int(out.get("afv_n", 0)) if out is not None else 0)
         cols["rb_afv_frac"].append(float(out.get("afv_frac", float("nan")))
                                    if out is not None else float("nan"))
+        # WP49 wide-lane diagnostic (RBPF_WL=1)
+        cols["rb_wl_n"].append(int(out.get("wl_n", 0)) if out is not None else 0)
+        cols["rb_wl_ratio"].append(float(out.get("wl_ratio", float("nan")))
+                                   if out is not None else float("nan"))
+        cols["rb_wl_rms"].append(float(out.get("wl_rms", float("nan")))
+                                 if out is not None else float("nan"))
+        wl_ = out.get("wl_pos") if out is not None else None
+        cols["wl_xyz"].append(np.asarray(wl_, dtype=float).copy()
+                              if wl_ is not None else np.full(3, np.nan))
         dp_ = out.get("ddpr_xyz") if out is not None else None
         cols["ddpr_xyz"].append(np.asarray(dp_, dtype=float).copy()
                                 if dp_ is not None else np.full(3, np.nan))

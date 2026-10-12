@@ -2328,6 +2328,9 @@ class RbpfFgo:
             out['pos_wp18'] = out['pos']
             out['pos'] = np.asarray(out['trk_map'], dtype=float).copy()
 
+        if _env_i('RBPF_WL', 0):
+            out.update(self._wl_fix(prob))
+
         rows_ = None
         if cfg.dump_rows or cfg.afv:
             rows_ = self._dump_rows(rtk, ctx, prob, map_H, pair_mass)
@@ -2636,6 +2639,136 @@ class RbpfFgo:
             if np.isfinite(innovation):
                 scores.append(abs(float(innovation)))
         return np.asarray(scores, dtype=float)
+
+    def _wl_fix(self, prob):
+        """WP49 wide-lane diagnostic (RBPF_WL=1): DD wide-lane integers
+        N_WL = N_f0 - N_f1 from this epoch's float DD ambiguities (the
+        bands' references may differ: DD_f1(ra, j) = DD_f1(rb, j) -
+        DD_f1(rb, ra)), LAMBDA ratio of the best two WL candidates, and the
+        WL position from the epoch-local LS on the WL carrier rows
+        lam_wl (b_f0 - b_f1 - N_WL) = J dx plus the DD-PR rows and the
+        relaxed float prior. Nothing here feeds back into the PF."""
+        res = {'wl_n': 0, 'wl_ratio': float('nan'), 'wl_rms': float('nan'),
+               'wl_pos': None}
+        if not prob.ok or prob.y is None:
+            return res
+        idx = {}
+        refs = {}
+        mem = {}
+        for pi, (g, ref, j) in enumerate(prob.pairs):
+            idx[(g[0], g[1], ref, j)] = pi
+            refs[g] = ref
+            mem.setdefault(g, set()).add(j)
+        cp = {}
+        for r in range(len(prob.rows_v0)):
+            if prob.rows_iscp[r]:
+                cp[int(prob.rows_pair[r])] = r
+        T, rows = [], []
+        nb = len(prob.pairs)
+        for sys_id in sorted({g[0] for g in refs}):
+            g0, g1 = (sys_id, 0), (sys_id, 1)
+            if g0 not in refs or g1 not in refs:
+                continue
+            ra, rb = refs[g0], refs[g1]
+            in1 = mem[g1] | {rb}
+            if ra not in in1:
+                continue
+            for j in sorted(mem[g0]):
+                if j not in in1:
+                    continue
+                p0 = idx[(sys_id, 0, ra, j)]
+                p1j = idx.get((sys_id, 1, rb, j)) if j != rb else None
+                p1a = idx.get((sys_id, 1, rb, ra)) if ra != rb else None
+                t = np.zeros(nb)
+                t[p0] += 1.0
+                if p1j is not None:
+                    t[p1j] -= 1.0
+                if p1a is not None:
+                    t[p1a] += 1.0
+                T.append(t)
+                # carrier rows of both bands (cycles), f1 rebuilt on ra
+                r0 = cp.get(p0)
+                r1j = cp.get(p1j) if p1j is not None else None
+                r1a = cp.get(p1a) if p1a is not None else None
+                ok = (r0 is not None and (p1j is None or r1j is not None)
+                      and (p1a is None or r1a is not None))
+                if ok:
+                    b1 = 0.0
+                    lam1 = None
+                    sig1 = 0.0
+                    if r1j is not None:
+                        b1 += prob.rows_bmeas[r1j]
+                        lam1 = prob.rows_lam[r1j]
+                        sig1 = prob.rows_sig[r1j]
+                    if r1a is not None:
+                        b1 -= prob.rows_bmeas[r1a]
+                        lam1 = prob.rows_lam[r1a]
+                        sig1 = max(sig1, prob.rows_sig[r1a])
+                    lam0 = prob.rows_lam[r0]
+                    if lam1 is None or not (lam0 > 0 and lam1 > 0) or lam0 == lam1:
+                        ok = False
+                rows.append((prob.rows_bmeas[r0] - b1, lam0, lam1,
+                             prob.rows_J[r0], prob.rows_sig[r0], sig1)
+                            if ok else None)
+        n = len(T)
+        res['wl_n'] = n
+        if n < 2:
+            return res
+        T = np.asarray(T)
+        z = T @ prob.y
+        Qz = T @ prob.Qb @ T.T
+        Qz = 0.5 * (Qz + Qz.T)
+        try:
+            afix, sqnorm, _, _ = _wp13m_finite_guarded_mlambda(
+                z, Qz, ncands=2, parmode=1)
+        except (LambdaError, np.linalg.LinAlgError, ValueError):
+            return res
+        cands, sq = self._topk_postprocess(afix, sqnorm)
+        if cands is None:
+            return res
+        nwl = cands[:, 0]
+        res['wl_ratio'] = (float(sq[1] / max(sq[0], 1e-12))
+                           if len(sq) > 1 else float('inf'))
+        # WL carrier rows (metres) + DD-PR rows + relaxed float prior
+        J, v, sg = [], [], []
+        for k, rw in enumerate(rows):
+            if rw is None:
+                continue
+            dbw, lam0, lam1, Jr, s0, s1 = rw
+            lw = 1.0 / (1.0 / lam0 - 1.0 / lam1)
+            J.append(Jr)
+            v.append(lw * (dbw - nwl[k]))
+            sg.append(abs(lw) * math.hypot(s0 / lam0, s1 / lam1))
+        nwr = len(v)
+        if nwr < 4:
+            return res
+        for r in range(len(prob.rows_v0)):
+            if not prob.rows_iscp[r]:
+                J.append(prob.rows_J[r])
+                v.append(prob.rows_v0[r])
+                sg.append(prob.rows_sig[r])
+        J = np.asarray(J); v = np.asarray(v); sg = np.asarray(sg)
+        A = J / sg[:, None]
+        b = v / sg
+        try:
+            Pinv = np.linalg.inv(prob.Ppos)
+            sol = np.linalg.solve(Pinv + A.T @ A, A.T @ b)
+            c = self.cfg.huber_c
+            if c > 0:
+                for _ in range(2):
+                    rr = b - A @ sol
+                    sw = np.sqrt(np.minimum(1.0, c / np.maximum(np.abs(rr), 1e-12)))
+                    Aw = A * sw[:, None]
+                    sol = np.linalg.solve(Pinv + Aw.T @ Aw, Aw.T @ (b * sw))
+        except np.linalg.LinAlgError:
+            return res
+        if not np.all(np.isfinite(sol)):
+            return res
+        rw_m = v[:nwr] - J[:nwr] @ sol
+        res['wl_rms'] = float(np.sqrt(np.mean(rw_m ** 2)))
+        res['wl_pos'] = prob.pos + sol
+        res['wl_nrows'] = nwr
+        return res
 
     def _conditional_mean(self, H, prob):
         """MAP-basin conditional position.
