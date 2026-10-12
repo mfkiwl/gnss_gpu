@@ -89,6 +89,7 @@ after -- so this range is exact, not an approximation, for our smoother
 
 from __future__ import annotations
 
+import copy
 import os
 import sys
 from pathlib import Path
@@ -3858,6 +3859,11 @@ class GtsamRtkTc(GtsamRtk):
         # WP48: remove the lever-arm rotation term from the Doppler
         # (antenna) velocity before it constrains the body velocity
         self.doppler_lever_comp = int(os.environ.get('DOPPLER_LEVER_COMP', '0'))
+        self.doppler_excl_bds_geo = int(os.environ.get('DOPPLER_EXCL_BDS_GEO', '0'))
+        self.dop_v2 = int(os.environ.get('DOP_V2', '0'))
+        self.dop_outlier = float(os.environ.get('DOP_V2_OUTLIER_M_S', '0.5'))
+        self.dop_sig_floor = float(os.environ.get('DOP_SIG_FLOOR', '0.05'))
+        self.dop_cov_scale = float(os.environ.get('DOP_COV_SCALE', '1.0'))
         self._nhc_fire_count = 0
         self._zupt_fire_count = 0
         self._doppler_fire_count = 0
@@ -4136,6 +4142,20 @@ class GtsamRtkTc(GtsamRtk):
         if sigma <= 0:
             return False
         vel_pred_ecef = self.R_enu2ecef @ np.asarray(vel_pred_enu)
+        if self.doppler_excl_bds_geo:
+            # WP48: BeiDou GEO Doppler rows are off by 3-22 m/s against
+            # the reference velocity (their broadcast-orbit velocity), and
+            # they bias the LS velocity (about 0.4 m/s vertical)
+            _geo = [i for i, s_ in enumerate(np.asarray(obs.sat))
+                    if sat2prn(int(s_))[0] == uGNSS.BDS
+                    and (sat2prn(int(s_))[1] <= 5 or sat2prn(int(s_))[1] >= 59)]
+            if _geo:
+                obs = copy.copy(obs)
+                obs.D = np.array(obs.D, copy=True)
+                obs.D[_geo, :] = 0.0
+        if self.dop_v2:
+            return self._add_doppler_vel_prior_v2(
+                graph, ep, obs, rs, vs, iu, sat, pos_pred_ecef, rot_nb, omega_b)
         v_dop_ecef, _clkdr, dop_ok, dop_res, _dop_n = _tc_doppler_velocity_ls(
             obs, obs_sd, rs, vs, iu, sat, pos_pred_ecef,
             nav_nf=self.nav.nf,
@@ -4151,9 +4171,111 @@ class GtsamRtkTc(GtsamRtk):
             # the body (IMU) velocity, v_ant = v_body + R_nb (w_b x l_b)
             v_dop_enu = v_dop_enu - np.asarray(rot_nb) @ np.cross(
                 np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
+        if os.environ.get('DBG_DOP_ROWS'):
+            from gnss_fgo.utils.ls_solvers import _doppler_build_rows as _dbr
+            from cssrlib.gnss import time2gpst as _t2g
+            _A, _b = _dbr(obs, obs_sd, rs, vs, iu, sat, pos_pred_ecef, self.nav.nf,
+                          lambda o, s_: _get_wavelengths(self.nav, o, s_), vel_pred_ecef)
+            _tw = _t2g(obs.t)[1]; _k = 0
+            for _si, _io in enumerate(iu):
+                _s = int(sat[_si])
+                if sat2prn(_s)[0] == uGNSS.GLO or not np.any(obs.D[_io, :] != 0):
+                    continue
+                if _k < len(_b):
+                    print('DOPR %.1f %d %.6f %.6f %.6f %.4f %.1f' % (
+                        _tw, _s, *(self.R_enu2ecef.T @ _A[_k, :3]), _b[_k],
+                        float(obs.S[_io, 0])), flush=True)
+                _k += 1
+        if os.environ.get('DBG_DOP'):
+            from cssrlib.gnss import time2gpst as _t2g
+            print('DOPV %.1f %.4f %.4f %.4f %.3f %d' % (
+                _t2g(obs.t)[1], *v_dop_enu, dop_res, _dop_n), flush=True)
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_dop_enu,
             gtsam.noiseModel.Isotropic.Sigma(3, sigma)))
+        self._doppler_fire_count += 1
+        return True
+
+    def _add_doppler_vel_prior_v2(self, graph, ep, obs, rs, vs, iu, sat,
+                                  pos_ecef, rot_nb, omega_b):
+        """WP48 Doppler velocity prior (DOP_V2=1): per-satellite rover
+        Doppler rows without GLONASS and BeiDou GEO, C/N0-weighted LS
+        (weight 10^((min(C/N0, 45) - 45) / 10)) with iterative rejection
+        of the largest residual above DOP_OUTLIER_M_S, and the prior's
+        covariance taken from the solve (a posteriori variance factor,
+        floored at DOP_SIG_FLOOR) instead of a fixed isotropic sigma."""
+        clight = 299792458.0
+        omge = 7.2921151467e-5
+        A, b, w = [], [], []
+        for si, i_obs in enumerate(iu):
+            s_ = int(sat[si])
+            sys_id, prn = sat2prn(s_)
+            if sys_id == uGNSS.GLO:
+                continue
+            if sys_id == uGNSS.BDS and (prn <= 5 or prn >= 59):
+                continue
+            lam = d_obs = None
+            for f in range(min(self.nav.nf, obs.D.shape[1])):
+                if obs.D[i_obs, f] != 0.0:
+                    lams = _get_wavelengths(self.nav, obs, s_)
+                    if f < len(lams) and lams[f] > 0:
+                        lam, d_obs, fsel = lams[f], obs.D[i_obs, f], f
+                        break
+            if d_obs is None:
+                continue
+            p_sat = rs[i_obs, :3]
+            v_sat = vs[i_obs, :3]
+            dv = p_sat - pos_ecef
+            rho = np.linalg.norm(dv)
+            if rho < 1.0:
+                continue
+            e = dv / rho
+            corr = omge / clight * (v_sat[1] * pos_ecef[0] - v_sat[0] * pos_ecef[1])
+            A.append([e[0], e[1], e[2], -1.0])
+            b.append(lam * d_obs + float(e @ v_sat) - corr)
+            try:
+                c = float(obs.S[i_obs, fsel])
+            except (IndexError, TypeError, ValueError):
+                c = 0.0
+            w.append(10.0 ** ((min(c, 45.0) - 45.0) / 10.0) if c > 0 else 0.1)
+        if len(b) < 5:
+            return False
+        A = np.asarray(A); b = np.asarray(b); w = np.asarray(w)
+        keep = np.ones(len(b), dtype=bool)
+        x = None
+        for _ in range(8):
+            if keep.sum() < 5:
+                return False
+            sw = np.sqrt(w[keep])
+            x, *_ = np.linalg.lstsq(A[keep] * sw[:, None], b[keep] * sw, rcond=None)
+            r = np.abs(A @ x - b) * keep
+            j = int(np.argmax(r))
+            if r[j] > self.dop_outlier:
+                keep[j] = False
+            else:
+                break
+        Ak, rk, wk = A[keep], (A @ x - b)[keep], w[keep]
+        n = len(rk)
+        if n < 5 or float(np.sqrt(np.mean(rk ** 2))) >= self.doppler_max_res:
+            return False
+        s2 = max(float(np.sum(wk * rk ** 2)) / max(n - 4, 1), self.dop_sig_floor ** 2)
+        try:
+            cov = s2 * np.linalg.inv(Ak.T @ (wk[:, None] * Ak))[:3, :3]
+        except np.linalg.LinAlgError:
+            return False
+        R = self.R_enu2ecef
+        v_enu = R.T @ x[:3]
+        cov_enu = R.T @ cov @ R * self.dop_cov_scale ** 2
+        cov_enu = 0.5 * (cov_enu + cov_enu.T) + np.eye(3) * self.dop_sig_floor ** 2
+        if self.doppler_lever_comp and rot_nb is not None and omega_b is not None:
+            v_enu = v_enu - np.asarray(rot_nb) @ np.cross(
+                np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
+        if os.environ.get('DBG_DOP'):
+            print('DOPV %.1f %.4f %.4f %.4f %.3f %d %.3f %.3f %.3f' % (
+                time2gpst(obs.t)[1], *v_enu, float(np.sqrt(np.mean(rk ** 2))), n,
+                *np.sqrt(np.diag(cov_enu))), flush=True)
+        graph.add(gtsam.PriorFactorVector(
+            self.PV(ep), v_enu, gtsam.noiseModel.Gaussian.Covariance(cov_enu)))
         self._doppler_fire_count += 1
         return True
 
