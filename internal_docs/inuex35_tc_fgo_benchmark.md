@@ -473,6 +473,46 @@ even under the strictest label). That needs a filter-level fix: the
 satellite set (mask 10°, one-band satellites) over several seeds, and the
 metre-level float drift in narrow streets.
 
+### Nagoya 3 (Sakae) investigation (WP47, 2026-10-12) — solved locally, not shippable yet
+
+Seed 20260710 unless noted; WP46 label (`3,15,3,15,0.1,99`).
+
+| configuration | Tokyo 1 | Tokyo 3 | Nagoya 3 |
+|---|---:|---:|---:|
+| WP46 (shipped) | 56.8% (0.01%) | 75.9% (0.01%) | 12.6% (8.12%) |
+| mask 10° (`QC_BASE_MASK=1 ELMIN_DEG=10`) | 59.4%* | – | 14.6% (3.48%), 3 seeds |
+| + one-band satellites (`QC_ANY_BAND=1`), 3 seeds | 45.9% (0.10%) | 68.3% (0.09%) | **22.7% (0.59%)** |
+| + one-band, code only (`QC_ANY_BAND_CODE_ONLY=1`) | 44.8% (0.17%) | 67.6% (0.05%) | **25.1% (0.23%)**; s11 23.3% (0.00%) |
+| + code only, PR sigma ×10 | 51.2% (0.03%) | 69.9% (0.05%) | 25.0% (0.08%) |
+| + code only ×10, full-band reference | 50.6% (0.00%) | 73.3% (0.09%) | – |
+| one-band only below 8 / 12 full-band satellites | 52.1 / 51.7% | 76.4 / 76.9% | 15.6 / 12.7% (7.5 / 5.2%) |
+| one-band C/N0 ≥ 35 / 40 dB-Hz | 51.3 / 50.7% | – | 11.1 / 15.6% (7.5 / 5.7%) |
+
+\* strictest label.
+
+- **Mechanism on Nagoya 3.** Too few satellites carry both bands in Sakae, so
+  the shared graph often becomes unsolvable. PF-active epochs are 79%
+  (Tokyo 93–94%), and the dead-reckoned share is 2.4%. Keeping one-band
+  satellites raises PF-active epochs to 94–95%. Their pseudorange alone is
+  enough (code-only mode). Nagoya 3 then holds ≤ 0.8% wrong FIX on every
+  seed tried, with correct FIX nearly doubled.
+- **Why it is not shipped.** The same satellites cost Tokyo 1 6–12 pp and
+  Tokyo 3 3–8 pp of correct FIX. The one-band population is the same in
+  both cities: about 3.5 per epoch, mostly BDS B3I-only and GPS L1-only. So
+  no system or C/N0 filter separates "helps" from "hurts". The harm is
+  partly the DD reference choice: the highest satellite (one per system,
+  shared by all bands) could be a one-band satellite, which drops that
+  band's carrier pairs. The full-band reference fix recovers Tokyo 3 but not
+  Tokyo 1. On Tokyo 1 the reference still flips between satellites whose L2
+  flickers, and the PF pair count is about the same, so the remaining loss
+  is probably graph ambiguity churn on reference changes.
+- Gating the one-band satellites on the full-band count loses the Nagoya 3
+  gain. The graph needs them continuously, not only in the sparse epochs.
+
+Next candidates: a sticky DD reference in the non-literal graph path (keep
+the previous reference while it stays full-band), then the one-band
+code-only mode with the PR sigma ×10, over all six runs and three seeds.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
