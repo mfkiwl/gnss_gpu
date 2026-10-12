@@ -3855,6 +3855,9 @@ class GtsamRtkTc(GtsamRtk):
 
         self.doppler_vel_sigma = float(os.environ.get('DOPPLER_VEL_SIGMA', '0.5'))
         self.doppler_max_res = float(os.environ.get('DOPPLER_MAX_RES', '2.0'))
+        # WP48: remove the lever-arm rotation term from the Doppler
+        # (antenna) velocity before it constrains the body velocity
+        self.doppler_lever_comp = int(os.environ.get('DOPPLER_LEVER_COMP', '0'))
         self._nhc_fire_count = 0
         self._zupt_fire_count = 0
         self._doppler_fire_count = 0
@@ -4120,7 +4123,8 @@ class GtsamRtkTc(GtsamRtk):
         return any_added
 
     def _add_doppler_vel_prior(self, graph, ep, obs, obs_sd, rs, vs, iu, sat,
-                                 pos_pred_ecef, vel_pred_enu):
+                                 pos_pred_ecef, vel_pred_enu, rot_nb=None,
+                                 omega_b=None):
         """Per-epoch `PriorFactorVector(Vel(ep), v_doppler_enu, sigma)`
         from rover Doppler (`obs.D`) -- transcribed from tc/'s
         `buildfactor/doppler.py` `add_doppler_vel_prior`. The LS solve
@@ -4141,6 +4145,12 @@ class GtsamRtkTc(GtsamRtk):
         if not dop_ok or dop_res >= self.doppler_max_res:
             return False
         v_dop_enu = self.R_enu2ecef.T @ v_dop_ecef
+        if (self.doppler_lever_comp and rot_nb is not None
+                and omega_b is not None):
+            # WP48: Doppler measures the antenna velocity; the prior is on
+            # the body (IMU) velocity, v_ant = v_body + R_nb (w_b x l_b)
+            v_dop_enu = v_dop_enu - np.asarray(rot_nb) @ np.cross(
+                np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_dop_enu,
             gtsam.noiseModel.Isotropic.Sigma(3, sigma)))
@@ -6130,7 +6140,10 @@ class GtsamRtkTc(GtsamRtk):
         # epoch's own `build_pim` call just integrated (`idx_snapshot` ->
         # `new_idx`), matching tc/'s `imu_idx_prev`/`n_imu` ZUPT window.
         self._add_doppler_vel_prior(
-            graph, ep, obs, obs_, rs, vs, iu, sat, pos_pred_ecef, vel_pred)
+            graph, ep, obs, obs_, rs, vs, iu, sat, pos_pred_ecef, vel_pred,
+            rot_nb=np.array(pose_pred.rotation().matrix()),
+            omega_b=(None if gyro_mean is None else
+                     np.asarray(gyro_mean) - np.asarray(prev_bias.gyroscope())))
         speed_for_nhc = float(np.linalg.norm(prev_vel[:2]))
         self._add_nhc_factor(
             graph, ep, speed_for_nhc, gyro_mean, prev_bias.gyroscope())
