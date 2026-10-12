@@ -367,6 +367,10 @@ class GtsamRtk(rtkpos):
         # carrier is blanked): they keep a narrow-sky graph solvable
         # without adding low-quality ambiguities
         self.qc_any_band_code_only = int(os.environ.get('QC_ANY_BAND_CODE_ONLY', '0'))
+        # WP47: DD-pseudorange sigma multiplier for pairs involving a
+        # one-band rover satellite (1 = unchanged)
+        self.qc_any_band_pr_scale = float(os.environ.get('QC_ANY_BAND_PR_SCALE', '1'))
+        self._one_band_sats = set()
 
         lag = float(os.environ.get('LAG', '0'))
         params = gtsam.ISAM2Params()
@@ -3420,6 +3424,9 @@ class GtsamRtk(rtkpos):
         """cssrlib QC, optionally keeping satellites with at least one
         usable band (QC_ANY_BAND, WP46)."""
         sat = super().qcedit(obs, rs, dts, svh, rr=rr)
+        rover = self.nav is not getattr(self, 'base_nav', None)
+        if rover:
+            self._one_band_sats = set()
         if not getattr(self, 'qc_any_band', 0):
             return sat
         mx = getattr(self, 'qc_any_band_max_full', 0)
@@ -3437,6 +3444,8 @@ class GtsamRtk(rtkpos):
                 if min(float(obs.S[j, f]) for f in good) < self.qc_any_band_cnr:
                     continue
             one_band = bool(np.any(edt > 0))
+            if one_band and rover:
+                self._one_band_sats.add(s_)
             for f in range(min(nf, obs.L.shape[1])):
                 if edt[f] > 0:
                     obs.L[j, f] = 0.0
@@ -4623,6 +4632,10 @@ class GtsamRtkTc(GtsamRtk):
                     _sig_pr_base = (self._varerr_dd_sigma(1, el[ri], el[ji])
                                     if self.varerr_enable
                                     else self.sigma_pr * np.sqrt(2))
+                    if (self.qc_any_band_pr_scale != 1.0
+                            and (int(ref_sat) in self._one_band_sats
+                                 or int(sat_j) in self._one_band_sats)):
+                        _sig_pr_base *= self.qc_any_band_pr_scale
                     noise_pr = gtsam.noiseModel.Isotropic.Sigma(
                         1, _sig_pr_base * pr_sigma_mult)
                     if self.huber_pr > 0:
