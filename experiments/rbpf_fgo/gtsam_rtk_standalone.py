@@ -4566,7 +4566,18 @@ class GtsamRtkTc(GtsamRtk):
                 ref_idx, ref_sat = self._tc_literal_pick_ref(
                     sys_id, idx_sys, sat, el)
             else:
-                ref_idx = idx_sys[np.argmax(el[idx_sys])]
+                # WP47: with QC_ANY_BAND the highest satellite may carry a
+                # single band (or no carrier at all in code-only mode);
+                # as the reference it would drop that band's carrier pairs
+                # for the whole system, so prefer a satellite with every
+                # band when there is one
+                cand = idx_sys
+                if self._one_band_sats:
+                    full = [i for i in idx_sys
+                            if int(sat[i]) not in self._one_band_sats]
+                    if full:
+                        cand = np.asarray(full)
+                ref_idx = cand[np.argmax(el[cand])]
                 ref_sat = sat[ref_idx]
             lams = _get_wavelengths(self.nav, obs_sd, ref_sat)
 
