@@ -140,6 +140,19 @@ satellite is never the DD reference; both only apply with `QC_ANY_BAND=1`.
 | `--env QC_ANY_BAND_MAX_FULL=n` | keep one-band satellites only while fewer than `n` satellites pass the full QC. Not adopted |
 | `--env QC_ANY_BAND_CNR=c` | keep a one-band satellite only if its usable bands reach `c` dB-Hz. Not adopted |
 
+WP48 (2026-10-13) ships the measurement-model options below with
+`--fix-rule 5,15,5,15,0.1,5,1.0` (`RBPF_SHIP=wp47` keeps WP47). The
+optional 7th `--fix-rule` field vetoes every label while the PF's DDPR
+quality exceeds it.
+
+| option | effect |
+|---|---|
+| `--env DOP_V2=1` | Doppler velocity prior from an own per-satellite solve: no GLONASS / BeiDou GEO (GEO Doppler is 3–22 m/s off), C/N0 weights, residuals above `DOP_V2_OUTLIER_M_S` (0.5) rejected, covariance from the solve (`DOP_COV_SCALE`, floor `DOP_SIG_FLOOR` 0.05 m/s). Shipped, scale 1.5 |
+| `--env DOPPLER_LEVER_COMP=1` | subtract the lever-arm rotation term `R_nb (w x l)` from the Doppler (antenna) velocity before it constrains the body velocity. Shipped |
+| `--env DOPPLER_EXCL_BDS_GEO=1` | drop BeiDou GEO rows from tc/'s Doppler LS (DOP_V2 always does). Not needed with DOP_V2 |
+| `--env PR_CNR_ERR=e` / `PR_CNR_REF=c` | add `e^2 * 10^((c - C/N0) / 10)` per rover satellite to the DD-PR variance (default c = 45 dB-Hz). Shipped e = 0.5 |
+| `--env HUBER_PR=k` / `HUBER_CP=k` | Huber loss on DD-PR / DD-CP (whitened threshold). Shipped 1.345 / 2.0 |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;

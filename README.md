@@ -64,9 +64,9 @@ The milestone-2 estimator treats integer ambiguities as persistent discrete
 **basins** and Rao-Blackwellizes the continuous fixed-lag GNSS/IMU graph. All
 systems below are scored by the same script on the six PPC runs (Tokyo and
 Nagoya). A FIX is correct when its 3D error is under 0.5 m, and the
-denominator is every rover epoch. The shipped WP47 configuration holds the
-wrong-FIX share at or below 1% of its fixes on all six runs, for every
-seed (worst seed 0.99%, Nagoya 2).
+denominator is every rover epoch. The shipped WP48 configuration holds the
+wrong-FIX share at or below 0.7% of its fixes on all six runs, for every
+seed (worst seed 0.62%, Nagoya 2).
 
 | Correct FIX (wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -76,10 +76,11 @@ seed (worst seed 0.99%, Nagoya 2).
 | RB-FGO-PF WP43 (3 seeds) | 35.4% (0.33%) | 64.1% (0.16%) | 68.5% (0.10%) | – | – | – |
 | RB-FGO-PF WP45, Tokyo-selected label (3 seeds) | 66.6% (0.56%) | 83.9% (0.09%) | 84.3% (0.04%) | 69.3% (0.70%) | 53.4% (8.53%) | 18.5% (16.2%) |
 | RB-FGO-PF WP46 (3 seeds) | 56.1% (0.02%) | 76.4% (0.02%) | 75.8% (0.00%) | 61.0% (0.03%) | 46.5% (0.21%) | 12.3% (6.15%) |
-| **RB-FGO-PF WP47 (3 seeds)** | **56.9% (0.01%)** | **78.0% (0.01%)** | **76.1% (0.04%)** | **65.4% (0.01%)** | **46.3% (0.71%)** | **26.3% (0.49%)** |
+| RB-FGO-PF WP47 (3 seeds) | 56.9% (0.01%) | 78.0% (0.01%) | 76.1% (0.04%) | 65.4% (0.01%) | 46.3% (0.71%) | 26.3% (0.49%) |
+| **RB-FGO-PF WP48 (3 seeds)** | **56.4% (0.01%)** | **78.7% (0.01%)** | **74.8% (0.03%)** | **66.5% (0.06%)** | **47.8% (0.54%)** | **27.4% (0.07%)** |
 
 <p align="center">
-  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP47, WP46 and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
+  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP48, WP47 and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
 </p>
 
 WP45 selected its FIX label on Tokyo alone. On Nagoya 2 and 3 that label
@@ -105,7 +106,7 @@ single ratio test. Each epoch of the shipped configuration runs as follows:
 
 ```mermaid
 flowchart TD
-    Obs["Epoch k: rover/base GNSS + IMU<br/>two-band satellites: code + carrier<br/>one-band satellites: code only"] --> FGO["Shared fixed-lag FGO (GTSAM), kept float<br/>IMU preintegration, DD pseudorange, DD carrier,<br/>NHC / ZUPT / Doppler"]
+    Obs["Epoch k: rover/base GNSS + IMU<br/>two-band satellites: code + carrier<br/>one-band satellites: code only"] --> FGO["Shared fixed-lag FGO (GTSAM), kept float<br/>IMU preintegration, DD pseudorange (Huber, C/N0),<br/>DD carrier (Huber), NHC / ZUPT / Doppler velocity"]
     FGO --> Marg["Joint marginal:<br/>float position + DD ambiguities (y, Q)"]
     Marg --> Cand["Top-K integer candidates (MLAMBDA, K = 12)"]
     Marg --> Spawn["Outage re-entry: DD-pseudorange position prior<br/>x top-K candidates under that prior"]
@@ -119,7 +120,7 @@ flowchart TD
     Moves --> Track["Each lineage's position belief:<br/>IMU-predicted, updated with its own integers"]
     Res -. next epoch .-> PF
     Res --> Agree["Per-pair agreement mass of the MAP basin<br/>(all particles, and the non-empty ones)"]
-    Agree --> Dec{"at least 15 pairs above 0.99<br/>(or the shared graph's own LAMBDA fix with 9+);<br/>and the float / DD-PR / fix guards agree?"}
+    Agree --> Dec{"at least 15 pairs above 0.99, among all particles<br/>or among the non-empty basins (mass 0.1+),<br/>or the shared graph's own LAMBDA fix with 5+;<br/>DD-PR quality at most 1.0 and the guards agree?"}
     Dec -- yes --> Fix["Report FIX"]
     Dec -- no --> Flt["Report FLOAT"]
     Track --> Pos["Reported position: MAP basin's tracked belief<br/>(IMU dead reckoning on abandoned epochs)"]
@@ -134,11 +135,12 @@ from every particle in the same epoch. The design rationale is in
 [RB-FGO-PF design](internal_docs/rbpf_fgo_design.md), and the code is in
 [`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
 
-| Shipped RB-FGO-PF (WP47) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+| Shipped RB-FGO-PF (WP48) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
-| Correct FIX / rover epochs | 56.9% | 78.0% | 76.1% | 65.4% | 46.3% | 26.3% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.01% (0.01%) | 0.01% (0.01%) | 0.04% (0.05%) | 0.01% (0.02%) | 0.71% (0.99%) | 0.49% (0.67%) |
-| PPC OFFICIAL (position only, label-independent) | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
+| Correct FIX / rover epochs | 56.4% | 78.7% | 74.8% | 66.5% | 47.8% | 27.4% |
+| Wrong FIX / FIX ↓ (worst seed) | 0.01% (0.01%) | 0.01% (0.01%) | 0.03% (0.03%) | 0.06% (0.10%) | 0.54% (0.62%) | 0.07% (0.21%) |
+| PPC OFFICIAL (position only, label-independent) | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
 | PPC OFFICIAL, WP46 | 80.8% | 92.7% | 90.4% | 65.4% | 55.3% | 20.2% |
 
 WP45 (2026-10-12) runs one configuration on all runs. It makes three
@@ -163,8 +165,14 @@ The satellite set alone accounts for most of it. WP47 (2026-10-13) adds
 satellites with one usable band (code only, sigma x10, never the DD
 reference, their residuals charged to them alone), a 10° mask on both
 receivers, and the label `nb_at[0.99] >= 15` or the shared graph's LAMBDA
-fix with 9+ ambiguities. `RBPF_SHIP=wp46`, `wp45` and `wp43` reproduce the
-previous releases. `PPC_CITY=nagoya` selects the
+fix with 9+ ambiguities. WP48 (2026-10-13) improves the shared float
+graph's measurement model: Huber losses on DD pseudorange and carrier, a
+C/N0 term in the pseudorange variance, and a new Doppler velocity prior
+(per-satellite rows without BeiDou GEO, whose Doppler was 3–22 m/s off,
+C/N0-weighted, with the lever-arm rotation term and the solve's own
+covariance). PPC OFFICIAL rises 2–8 pp on every run. The label is
+re-selected with every seed at or below 0.7% wrong. `RBPF_SHIP=wp47`,
+`wp46`, `wp45` and `wp43` reproduce the previous releases. `PPC_CITY=nagoya` selects the
 Nagoya antenna lever arm. An external RTK engine is
 used only for diagnosis, never for the FIX label. The design rationale is in
 the [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) and

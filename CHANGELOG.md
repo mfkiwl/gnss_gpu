@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP48** (`experiments/rbpf_fgo/`): measurement model of the
+  shared float graph. BeiDou GEO Doppler rows were 3–22 m/s off the
+  reference velocity and biased the Doppler velocity prior (about 0.4 m/s
+  vertical). The prior was also applied to the body velocity without the
+  lever-arm rotation term. `DOP_V2=1` solves the Doppler velocity from
+  per-satellite rows without GLONASS and BeiDou GEO, C/N0-weighted, and uses
+  the solve's own covariance (`DOPPLER_LEVER_COMP=1` adds the lever-arm
+  term). Horizontal p95 velocity error goes from about 2.0 to 0.4–0.5 m/s.
+  WP48 also turns on Huber losses (`HUBER_PR=1.345`, `HUBER_CP=2.0`) and a
+  C/N0 pseudorange variance term (`PR_CNR_ERR=0.5`). The label is
+  re-selected so that every seed stays at or below 0.7% wrong
+  (`--fix-rule 5,15,5,15,0.1,5,1.0`; the new 7th field vetoes labels while
+  the DDPR quality exceeds 1.0). Correct FIX (3 seeds): Tokyo
+  56.4 / 78.7 / 74.8%, Nagoya 66.5 / 47.8 / 27.4% (worst seed 0.62% wrong).
+  PPC OFFICIAL: Tokyo 84.3 / 93.8 / 91.8%, Nagoya 74.5 / 56.1 / 78.8%
+  (WP47: 80.5 / 91.8 / 88.3%, 66.9 / 55.1 / 71.0%). `RBPF_SHIP=wp47`
+  reproduces the previous release.
 - **RB-FGO-PF WP47** (`experiments/rbpf_fgo/`): Nagoya 3. Too few
   satellites kept both bands in Sakae, so the shared graph often had too few
   carrier pairs. `run_ship.sh` now keeps satellites with one usable band as
