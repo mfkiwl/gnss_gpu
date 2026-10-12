@@ -368,7 +368,7 @@ class GtsamRtk(rtkpos):
         # without adding low-quality ambiguities
         self.qc_any_band_code_only = int(os.environ.get('QC_ANY_BAND_CODE_ONLY', '0'))
         # WP47: DD-pseudorange sigma multiplier for pairs involving a
-        # one-band rover satellite (1 = unchanged)
+        # one-band satellite, rover or base (1 = unchanged)
         self.qc_any_band_pr_scale = float(os.environ.get('QC_ANY_BAND_PR_SCALE', '1'))
         self._one_band_sats = set()
 
@@ -3403,6 +3403,14 @@ class GtsamRtk(rtkpos):
             except RuntimeError:
                 continue
             res_m = float(np.sqrt(2.0 * max(err, 0.0)) * self.sigma_pr * np.sqrt(2))
+            ob = self._one_band_sats
+            if ob and (int(ref) in ob or int(j) in ob):
+                # WP47: charged to the one-band satellite only (see
+                # `_accum` in the main residual pass)
+                for s_ob in (ref, j):
+                    if int(s_ob) in ob and res_m > per_sat.get(s_ob, 0.0):
+                        per_sat[s_ob] = res_m
+                continue
             res_sq.append(res_m * res_m)
             if res_m > per_sat.get(ref, 0.0):
                 per_sat[ref] = res_m
@@ -3424,9 +3432,17 @@ class GtsamRtk(rtkpos):
         """cssrlib QC, optionally keeping satellites with at least one
         usable band (QC_ANY_BAND, WP46)."""
         sat = super().qcedit(obs, rs, dts, svh, rr=rr)
+        # one-band sets are kept per receiver (the base may be edited at
+        # its own rate) and their union is what the DD build sees: a
+        # satellite missing a band at the base is just as unusable as a
+        # reference as one missing it at the rover
         rover = self.nav is not getattr(self, 'base_nav', None)
         if rover:
-            self._one_band_sats = set()
+            self._one_band_rov = set()
+        else:
+            self._one_band_base = set()
+        self._one_band_sats = (getattr(self, '_one_band_rov', set())
+                               | getattr(self, '_one_band_base', set()))
         if not getattr(self, 'qc_any_band', 0):
             return sat
         mx = getattr(self, 'qc_any_band_max_full', 0)
@@ -3444,7 +3460,8 @@ class GtsamRtk(rtkpos):
                 if min(float(obs.S[j, f]) for f in good) < self.qc_any_band_cnr:
                     continue
             one_band = bool(np.any(edt > 0))
-            if one_band and rover:
+            if one_band:
+                (self._one_band_rov if rover else self._one_band_base).add(s_)
                 self._one_band_sats.add(s_)
             for f in range(min(nf, obs.L.shape[1])):
                 if edt[f] > 0:
@@ -5283,6 +5300,20 @@ class GtsamRtkTc(GtsamRtk):
             except RuntimeError:
                 return
             res_m = abs(r)
+            # WP47: a pair with a one-band (QC_ANY_BAND) satellite is
+            # charged to that satellite only and kept out of the epoch
+            # RMS -- its code is the weak link, and blaming the
+            # reference would quarantine / gate the reference and with
+            # it every carrier pair of its system
+            ob = self._one_band_sats
+            if ob and (int(ref) in ob or int(j) in ob):
+                for s_ob in (ref, j):
+                    if int(s_ob) in ob and res_m > per_sat.get(s_ob, 0.0):
+                        per_sat[s_ob] = res_m
+                    if (not is_cp and int(s_ob) in ob
+                            and res_m > per_sat_pr.get(s_ob, 0.0)):
+                        per_sat_pr[s_ob] = res_m
+                return
             res_sq.append(res_m * res_m)
             if res_m > per_sat.get(ref, 0.0):
                 per_sat[ref] = res_m
