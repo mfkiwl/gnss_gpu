@@ -84,6 +84,12 @@ libgnss++ KF-RTK fixes slightly more of run1, but 8.8% of its fixes are
 wrong. Gating its output to a 1% wrong-FIX share on the run itself (an
 optimistic, in-sample gate) leaves 52.8 / 76.4 / 68.3%.
 
+These numbers are Tokyo only, and the label rule was selected on Tokyo. On
+the three Nagoya runs the same configuration keeps nagoya1 under 1% wrong
+FIX (69.3% correct) but not nagoya2 or nagoya3 (8.5% and 16.2% of fixes
+wrong). See the WP46 section of the
+[benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md).
+
 One shared float factor graph supplies the Gaussian part. The particles
 carry only integer hypotheses ("basins"), so a wrong fix competes with the
 right one through accumulated likelihood instead of being locked in by a
