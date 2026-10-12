@@ -473,7 +473,7 @@ even under the strictest label). That needs a filter-level fix: the
 satellite set (mask 10°, one-band satellites) over several seeds, and the
 metre-level float drift in narrow streets.
 
-### Nagoya 3 (Sakae) investigation (WP47, 2026-10-12) — solved locally, not shippable yet
+### Nagoya 3 (Sakae) investigation (WP47, 2026-10-12) — first pass
 
 Seed 20260710 unless noted; WP46 label (`3,15,3,15,0.1,99`).
 
@@ -509,9 +509,69 @@ Seed 20260710 unless noted; WP46 label (`3,15,3,15,0.1,99`).
 - Gating the one-band satellites on the full-band count loses the Nagoya 3
   gain. The graph needs them continuously, not only in the sparse epochs.
 
-Next candidates: a sticky DD reference in the non-literal graph path (keep
-the previous reference while it stays full-band), then the one-band
-code-only mode with the PR sigma ×10, over all six runs and three seeds.
+(Superseded: the Tokyo loss was not reference churn. See the next section.)
+
+### WP47 shipped (2026-10-13): one-band code-only satellites, residual attribution fix
+
+**Root cause of the Tokyo harm.** The per-satellite DD-pseudorange residual
+map (`_main_ddpr_per_sat`, `_main_ddpr_per_sat_pr`) charged each pair's
+residual to both its reference and its target satellite. A one-band
+code-only satellite is down-weighted, so the float does not follow its
+multipath and its pair residual stays large. That residual was charged to
+the full-band reference too. The per-satellite gate (3 m) and the
+persist-bad quarantine (2 m, 4 epochs) then removed the reference, and with
+it every carrier pair of its system. Pairs that involve a one-band
+satellite are now charged to the one-band satellite alone and kept out of
+the epoch RMS. A satellite missing a band at the base also counts as
+one-band (it is never the reference). Neither change has any effect
+without `QC_ANY_BAND=1`.
+
+Seed 20260710, WP46 label:
+
+| configuration | Tokyo 1 | Tokyo 3 | Nagoya 3 |
+|---|---:|---:|---:|
+| WP46 | 56.8% (0.01%) | 75.9% (0.01%) | 12.6% (8.12%) |
+| one-band code-only ×10, before the fix | 52.2% (0.02%) | 73.3% (0.09%) | 21.7% (0.09%) |
+| same, after the fix | 55.9% (0.04%) | 75.2% (0.01%) | 20.9% (0.00%) |
+| mask 10° alone | 57.0% (0.00%) | – | 14.4% (2.09%) |
+
+Without the 10° mask, Tokyo 2 loses the float for minutes in its hard
+segment (178260–178420 s, float error up to 200 m) on two of three seeds
+(wrong FIX 2.40 / 1.56 / 0.49%). With the mask, that does not happen.
+With the mask (WP46 label, 3 seeds), Tokyo is unchanged
+(56.4 / 76.8 / 75.7%), Nagoya 1 goes 61.0 → 66.2% and Nagoya 3 goes
+12.3 → 26.2%. But Nagoya 2 and 3 keep deterministic wrong spans, at the
+same times on every seed: Nagoya 2 at 556840–556862 s (a self-consistent
+basin 0.95 m off, with the shared float itself about 1 m off; WP46 trips on
+part of it too) and Nagoya 3 at 554402–554408 s (0.53 m).
+
+**Label re-selection.** A grid search over the `fix_rule_loro.py` grid and
+the veto grid on all six runs × three seeds, requiring every run and every
+seed to stay at or below 1% wrong, picks `5,15,3,99,0.1,9`:
+`nb_at[0.99] >= 15`, or the shared graph's own LAMBDA fix with at least 9
+ambiguities. The non-empty-mass term and the vetoes are off.
+
+| WP47 (3 seeds), correct FIX (wrong / FIX, per seed) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP47 filter + WP47 label | 56.9% (0.01 / 0.01 / 0.01) | 78.0% (0.01 / 0.01 / 0.01) | 76.1% (0.02 / 0.05 / 0.04) | 65.4% (0.00 / 0.02 / 0.02) | 46.3% (0.99 / 0.93 / 0.20) | 26.3% (0.35 / 0.67 / 0.44) |
+| WP46 filter + WP47 label | 57.0% | 77.5% | 76.6% | 60.8% | 46.4% (1.79 / 0.71 / 0.11) | 12.3% (5.94 / 4.56 / 5.42) |
+| WP46 (shipped before) | 56.1% | 76.4% | 75.8% | 61.0% | 46.5% (0.37 / 0.13 / 0.14) | 12.3% (8.12 / 3.98 / 6.35) |
+| PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
+| PPC OFFICIAL, WP46 | 80.8% | 92.7% | 90.4% | 65.4% | 55.3% | 20.2% |
+
+Caveats:
+
+- The label is selected in-sample, on the same six runs. Held out
+  leave-one-run-out, Nagoya 2 is the weak fold: trained on the other five
+  runs, the selection picks a looser rule that labels 3.5–4.7% of Nagoya 2
+  fixes wrong. Every other fold picks `nb_at[0.99] >= 15` with the DDPR
+  veto and stays under 0.3%. The 0.99% worst seed on Nagoya 2 is at the
+  cap.
+- Tokyo 3 PPC OFFICIAL drops 2.1 pp (90.4 → 88.3%): the extra code-only
+  satellites move some float positions.
+- With the WP46 label on the WP47 filter, a DDPR-quality veto
+  (`ddpr_qual > 1.0`) clears the Nagoya 3 spans (wrong 0.00 / 0.00 /
+  0.29%) but not Nagoya 2.
 
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 

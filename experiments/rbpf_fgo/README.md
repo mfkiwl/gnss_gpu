@@ -127,6 +127,19 @@ Tokyo-selected `3,5,3,12,0.1,5`). Other WP46 additions:
 | `--env QC_ANY_BAND=1` | keep a satellite with at least one usable band and blank only the failed bands. Default off |
 | `fix_rule_loro.py --set city:run:prefix` | leave-one-run-out over any mix of Tokyo and Nagoya runs |
 
+WP47 (2026-10-13) ships `--fix-rule 5,15,3,99,0.1,9` with one-band
+satellites as code-only rows and a 10° mask on both receivers
+(`RBPF_SHIP=wp46` keeps WP46). Pairs with a one-band satellite charge their
+residual to that satellite only (never to the reference), and such a
+satellite is never the DD reference; both only apply with `QC_ANY_BAND=1`.
+
+| option | effect |
+|---|---|
+| `--env QC_ANY_BAND_CODE_ONLY=1` | with `QC_ANY_BAND`: a one-band satellite (rover or base) keeps its pseudorange only; its carrier is blanked, so it adds no ambiguity. Shipped |
+| `--env QC_ANY_BAND_PR_SCALE=s` | DD-pseudorange sigma multiplier for pairs with a one-band satellite. WP47 ships 10 |
+| `--env QC_ANY_BAND_MAX_FULL=n` | keep one-band satellites only while fewer than `n` satellites pass the full QC. Not adopted |
+| `--env QC_ANY_BAND_CNR=c` | keep a one-band satellite only if its usable bands reach `c` dB-Hz. Not adopted |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;
