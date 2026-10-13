@@ -108,8 +108,10 @@ def main():
     pos = [(int(w), float(t), x, 4 if f else 5, 0)
            for w, t, x, f in zip(out["week"], out["tow"], xyz, fix)]
     write_pos_file(dst.with_suffix(".pos"), pos,
-                   f"WP51 RB-FGO-PF forward + backward pass ({a.fwd.name}, "
-                   f"{a.bwd.name}), anchored union k={a.k} d={a.d:g} m")
+                   f"WP51 RB-FGO-PF forward + backward pass "
+                   f"({a.fwd.parent.name}/{a.fwd.name}, "
+                   f"{a.bwd.parent.name}/{a.bwd.name}), anchored union "
+                   f"k={a.k} d={a.d:g} m")
     n = np.bincount(src, minlength=5)
     print(f"FIX {int(fix.sum())}: forward {n[1]}, carry {n[2]}, backward PF "
           f"{n[3]}, carry from union {n[4]}; wrote {dst}")
