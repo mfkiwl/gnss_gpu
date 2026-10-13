@@ -558,6 +558,11 @@ class RbpfFgo:
         self.fb_bad = {}          # (sat, f) -> consecutive low-mass epochs
         self.fb_unseen_pending = set()   # (sat,f) aged out while held
         self.fb_commit_count = 0
+        # WP52: holds taken from the label layer's integer carry
+        self.carry_protect = set()
+        self.carry_fb_commits = 0
+        self.carry_fb_epochs = 0
+        self.carry_fb_skipped = 0
         self.fb_release_count = 0
         self.fb_release_mass = 0
         self.fb_release_unseen = 0
@@ -1608,6 +1613,10 @@ class RbpfFgo:
         for key in list(committed.keys()):
             s, f = int(key[0]), int(key[1])
             unseen = (s, f) in self.fb_unseen_pending
+            if not unseen and (s, f) in self.carry_protect:
+                # WP52: the carry still fits this integer on the raw
+                # carrier; the PF's mass dip alone does not release it
+                continue
             if unseen or self.fb_bad.get((s, f), 0) >= cfg.fb_rel_m:
                 rtk._release_ambiguity(
                     s, f, reason='rbpf_unseen' if unseen else 'rbpf_mass')
@@ -1699,6 +1708,55 @@ class RbpfFgo:
             rtk._inject_hold(xa, newly)
             self.fb_commit_count += len(newly)
         return len(committed)
+
+    def carry_feedback(self, rtk, state):
+        """WP52 (RBPF_CARRY_FB): hold the label layer's carried integer set
+        in the shared graph, and keep the PF's mass release off those
+        pairs while the carry lasts. `state` is IntegerCarry.state,
+        {(sys, f): {sat: m}} with DD(ref, j) = m[ref] - m[j], the graph's
+        SD_ref - SD_j convention; None ends the protection.
+
+        Per group, the gauge is a pair the graph already holds (all held
+        pairs of the group must agree with the carry, else the group is
+        left to the PF), or the float SD of its first satellite."""
+        if not state:
+            self.carry_protect = set()
+            return 0
+        self.carry_fb_epochs += 1
+        committed = rtk._committed
+        protect = set()
+        newly = []
+        for (_sys, f), m in state.items():
+            f = int(f)
+            keys = [(int(sv), f) for sv in m if (int(sv), f) in rtk.amb_keys]
+            if len(keys) < 2:
+                continue
+            held = [k for k in keys if k in committed]
+            if held:
+                a = held[0]
+                va = float(committed[a])
+                if any(abs((va - float(committed[k])) - (m[a[0]] - m[k[0]])) > 0.5
+                       for k in held[1:]):
+                    self.carry_fb_skipped += 1
+                    continue
+            else:
+                a = keys[0]
+                va = float(rtk.nav.x[rtk.IB(a[0], f, rtk.nav.na)])
+                if not np.isfinite(va):
+                    continue
+            for k in keys:
+                protect.add(k)
+                if k not in committed:
+                    committed[k] = va - (m[a[0]] - m[k[0]])
+                    newly.append(k)
+        self.carry_protect = protect
+        if newly:
+            xa = np.asarray(rtk.nav.x, dtype=float).copy()
+            for k in newly:
+                xa[rtk.IB(k[0], k[1], rtk.nav.na)] = committed[k]
+            rtk._inject_hold(xa, newly)
+            self.carry_fb_commits += len(newly)
+        return len(newly)
 
     # -- one epoch ---------------------------------------------------------------
 

@@ -419,6 +419,9 @@ def main() -> int:
     if args.carry:
         from integer_carry import IntegerCarry
         carrier = IntegerCarry()
+    # WP52: 1 = hold the carried integer set in the shared graph on carried
+    # epochs, 2 = also on labelled FIX epochs (needs --carry 1)
+    carry_fb = int(os.environ.get('RBPF_CARRY_FB', '0'))
     pos_rows = []
     rtk = None
 
@@ -878,6 +881,10 @@ def main() -> int:
                     ecef = np.asarray(x_c, dtype=float)
                     cols["ecef"][-1] = ecef
                     cols["err3d"][-1] = _err(ecef)
+            if carry_fb:
+                # WP52: hold the carried integers in the shared graph
+                fb_on = carried or (carry_fb >= 2 and hyst_ok)
+                rtk.rbpf.carry_feedback(rtk, carrier.state if fb_on else None)
         cols["hyst_fix"].append(int(hyst_ok))
         cols["carry_fwd"].append(int(carried))
         cols["rule_fix"].append(int(rule_ok))
@@ -922,6 +929,9 @@ def main() -> int:
               f"spawn_events={pf.spawn_events} "
               f"gpu_topk={pf.gpu_topk_calls} "
               f"gpu_fallback={pf.gpu_topk_fallbacks}")
+    if carry_fb:
+        print(f"WP52: carry_fb={carry_fb} epochs={pf.carry_fb_epochs} "
+              f"commits={pf.carry_fb_commits} skipped={pf.carry_fb_skipped}")
     print(f"WP18+: fb_rel_ddpr={pf.fb_release_ddpr} "
           f"fb_rel_support={pf.fb_release_support} "
           f"fb_dual_gated={pf.fb_dual_gated} "
