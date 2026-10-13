@@ -803,6 +803,49 @@ The backward pass helps most on Nagoya 3 (+8.9 pp over the carry steps);
 alone it fixes 42.9% of epochs there, against 31.0% forward. Compute: the post-processed output runs the
 filter twice (backward runs take as long as forward ones).
 
+### WP52 (2026-10-13): carry feedback into the shared graph — negative result
+
+`RBPF_CARRY_FB=1` holds the forward carry's integer set in the shared graph
+(`RbpfFgo.carry_feedback`, the same `_committed` / `_inject_hold` path as
+the PF's own feedback) on carried epochs, and keeps the PF's mass release
+off those pairs while the carry lasts; `=2` also holds it on labelled FIX
+epochs. The aim was to keep the float anchored where the PF's agreement
+dips, so the real-time label recovers sooner. Default off.
+
+| seed 20260710, correct FIX (wrong / FIX) | Tokyo 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|
+| WP50 real time | 63.4% (0.05%) | 52.4% (0.12%) | 32.0% (0.00%) |
+| `RBPF_CARRY_FB=1` | 63.6% (0.09%) | 52.6% (0.48%) | 29.0% (0.00%) |
+| `RBPF_CARRY_FB=2` | – | – | 29.0% (0.00%) |
+
+Forward carry episodes are rare and short: 2–3.5% of epochs, median 2
+epochs (0.4 s), at most 53–149 epochs (Tokyo 1, Nagoya 2, Nagoya 3). The
+feedback acted on 17–367 epochs, so the changes above are within the seed
+spread, except that the wrong share rose on Nagoya 2. The hard stretches
+end the carry within a second, which is exactly where anchoring would have
+been needed. Not pursued further.
+
+### WP53 (2026-10-13): no FIX entry while parked — negative result
+
+Nagoya 2's wrong basin (556831–556862 s) falls in a 45 s stop (reference
+speed 0 from 556807 to 556853 s). While parked, code multipath is a
+constant bias and the geometry barely changes, so a basin about 1 m off is
+indistinguishable. Test (label replay on the 18 WP48 row-dump runs): veto
+the hysteresis entry while a causal IMU detector says the vehicle is
+stationary (last 1 s: |acc| std < 0.05 m/s², median |gyro| < 0.01 rad/s).
+Against the reference speed it is 97–99% precise; it finds 90–94% of the
+parked epochs on Nagoya but only 13–32% on Tokyo, whose IMU vibrates more
+when parked. Parked epochs are 33–55% of every run.
+
+| 3 seeds, real time, correct FIX (worst wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP50 | 63.1% (0.05%) | 82.8% (0.03%) | 78.8% (0.00%) | 70.6% (0.00%) | 52.2% (0.20%) | 31.0% (0.12%) |
+| no entry while parked | 62.7% (0.05%) | 81.5% (0.03%) | 78.5% (0.00%) | 55.4% (0.00%) | 40.7% (0.26%) | 26.0% (0.00%) |
+
+Nagoya loses 5–15 pp, and Nagoya 2's wrong share does not fall: the wrong
+basin is chosen during the stop but labelled only after the vehicle starts
+moving. Not pursued.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

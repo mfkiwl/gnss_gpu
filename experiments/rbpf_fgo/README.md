@@ -180,6 +180,12 @@ WP51 (2026-10-13) adds a post-processed output from a second, backward pass
 | `--env PHASE1_STUCK_N=N` | hand over to Phase 2 after N Phase-1 epochs in a row fail to commit, once 20 have committed (the Phase-1 smoother can wedge on `map::at`). Default 0 (off) |
 | `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3]` | the WP51 output (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
 
+WP52 (negative result, default off):
+
+| option | effect |
+|---|---|
+| `--env RBPF_CARRY_FB=1` | with `--carry 1`: hold the carried integer set in the shared graph on carried epochs and keep the PF's mass release off those pairs (`=2`: also on labelled FIX epochs). Carry episodes last a median of 2 epochs, so it changes little (benchmark record, WP52) |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;

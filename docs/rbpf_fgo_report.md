@@ -235,6 +235,14 @@ benchmark record:
   same wrong basin.
 - **Averaging the two floats (WP51).** It lowers the share of epochs within
   0.5 m on Tokyo 1, Tokyo 3 and Nagoya 1.
+- **Holding the carried integers in the graph (WP52).** Forward carry
+  episodes last a median of 0.4 s, so the holds rarely act; seed 20260710
+  moved Tokyo 1 by +0.2 pp, Nagoya 3 by −3.0 pp and Nagoya 2's wrong share
+  from 0.12 to 0.48%.
+- **No FIX entry while parked (WP53).** Parked epochs are 33–55% of each run;
+  vetoing entry there costs Nagoya 5–15 pp and leaves Nagoya 2's wrong
+  basin, which is chosen during a stop but labelled after the vehicle
+  moves.
 
 ## Limits
 
