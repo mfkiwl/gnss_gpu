@@ -169,6 +169,7 @@ filter (`RBPF_SHIP=wp48` keeps WP48):
 | `--carry 1` with `--env RBPF_CARRY=1` | forward integer carry (`integer_carry.IntegerCarry`): an unfixed epoch is labelled FIX at the carried-integer position while the last FIX's single-difference integers fit the raw DD carrier (8+ pairs, 0.15 cycle). npz columns `hyst_fix`, `carry_fwd` |
 | `integer_smoother.py runN.npz --max-s 15` | backward carry from later FIX epochs, a fixed-lag output (`runN_smooth.npz` / `.pos`, column `carry_bwd`); needs the row dump (`RBPF_DUMP_ROWS=1`, on in WP50) |
 | `replay_carry.py` | replays the WP50 label layer on a row-dump run (the PF does not see it, so the output equals `RBPF_SHIP=wp50`) |
+| `score_label.py --data-root .../PPC-Dataset runN.npz [runN_smooth.npz ...]` | correct FIX (% of rover epochs) and wrong / FIX of the `rule_fix` label, the FIX columns of [the report](../../docs/rbpf_fgo_report.md); `PPC_CITY` selects the city |
 
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and

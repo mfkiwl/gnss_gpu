@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **RB-FGO-PF technical report** (`docs/rbpf_fgo_report.md`): method,
+  evaluation protocol, results WP43–WP50, negative results (learned labels,
+  wide-lane, more particles), limits and next steps.
+  `experiments/rbpf_fgo/score_label.py` scores the `rule_fix` label (the
+  report's FIX columns).
 - **RB-FGO-PF WP50** (`experiments/rbpf_fgo/`): the PF decides integer sets,
   and carrier continuity carries them. `run_ship.sh` now runs the WP48 filter
   with a hysteresis label (`--fix-hyst 5,2,2,6,2,6,0.1,5`: enter after the
