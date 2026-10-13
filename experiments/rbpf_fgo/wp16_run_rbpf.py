@@ -272,6 +272,11 @@ def main() -> int:
                          "an epoch the label leaves unfixed is labelled FIX "
                          "at the carried-integer position while the last "
                          "FIX epoch's integer set still fits the DD carrier")
+    ap.add_argument("--reverse", type=int, default=0,
+                    help="WP51: backward pass. Runs the filter on a "
+                         "time-mirrored copy of the run (reverse_time.py); "
+                         "tow, truth and outputs stay in true time, rows "
+                         "in processing (reverse) order")
     ap.add_argument("--band-priority", default="",
                     help="WP45: per-system RINEX band order overriding the "
                          "auto-detect L1>L2>L5 priority, e.g. 'C:2,6,5' picks "
@@ -351,6 +356,28 @@ def main() -> int:
     trace_windows = _parse_trace_windows(args.trace_tow)
     trace_rows = []
     row_dump, row_epochs = [], []   # WP45 RBPF_DUMP_ROWS diagnostic
+
+    mirror = None
+    if args.reverse:
+        # WP51: feed the filter a time-mirrored world (reverse_time.py)
+        import reverse_time as rtime
+        os.environ['RBPF_REVERSE'] = '1'
+        os.environ.setdefault('PHASE1_STUCK_N', '5')
+        rov_l, bas_l = rtime.read_all(dec), rtime.read_all(decb)
+        (w0, tw0), (w1, tw1) = gn.time2gpst(rov_l[0].t), gn.time2gpst(rov_l[-1].t)
+        if w0 != w1:
+            print("ERROR: --reverse needs the run inside one GPS week")
+            return 1
+        mirror = rtime.Mirror(rov_l[0].t, rov_l[-1].t, tw0, tw1)
+        dec, decb = (rtime.ListDecoder(rtime.mirror_obs(rov_l, mirror)),
+                     rtime.ListDecoder(rtime.mirror_obs(bas_l, mirror)))
+        del rov_l, bas_l
+        imu_data = rtime.mirror_imu(imu_data, mirror)
+        rtime.patch_satposs(mirror)
+        print(f"--reverse: mirrored about tow {mirror.mtow / 2:.2f}")
+
+    def _true_tow(tow_):
+        return float(mirror.tow(tow_)) if mirror is not None else tow_
 
     sync_gen = rn.sync_obs_hold(dec, decb, maxage=args.maxage)
     args.out_dir.mkdir(parents=True, exist_ok=True)
@@ -497,7 +524,7 @@ def main() -> int:
             base_xyz=base_ecef,
             rb_n=args.rb_n, rb_k=args.rb_k, rb_beta=args.rb_beta,
             rb_gamma=args.rb_gamma, rb_min_nb=args.rb_min_nb,
-            rb_seed=rtk.rbpf.cfg.seed,
+            rb_seed=rtk.rbpf.cfg.seed, reverse=int(args.reverse),
         )
         for k in _FCOLS:
             savez_kwargs[k] = np.asarray(cols[k])
@@ -618,6 +645,7 @@ def main() -> int:
         rtk._rbpf_witness_P = None
         if len(ref_tows):
             _, _tow0 = gn.time2gpst(obs.t)
+            _tow0 = _true_tow(_tow0)
             _ri0 = int(np.argmin(np.abs(ref_tows - _tow0)))
             rtk._rbpf_truth_ecef = (ref_ecefs[_ri0]
                                     if abs(ref_tows[_ri0] - _tow0) < 0.5
@@ -638,6 +666,7 @@ def main() -> int:
         rtk.process(obs, obsb=obsb)
         updated = rtk.last_valid_epoch != prev_valid
         week, tow = gn.time2gpst(obs.t)
+        tow_t = _true_tow(tow)      # true time (== tow unless --reverse)
         dr_ecef = None
         if not updated:
             if not (args.dr_fill and last_rep is not None
@@ -673,8 +702,8 @@ def main() -> int:
         else:
             n_flt += 1
 
-        ri = int(np.argmin(np.abs(ref_tows - tow))) if len(ref_tows) else -1
-        have_ref = ri >= 0 and abs(ref_tows[ri] - tow) < 0.5
+        ri = int(np.argmin(np.abs(ref_tows - tow_t))) if len(ref_tows) else -1
+        have_ref = ri >= 0 and abs(ref_tows[ri] - tow_t) < 0.5
 
         def _err(p):
             return (float(np.linalg.norm(np.asarray(p) - ref_ecefs[ri]))
@@ -697,7 +726,7 @@ def main() -> int:
             row_epochs.append(np.concatenate(
                 [[ri_], out["rows_pos0"],
                  fx_ if fx_ is not None else np.full(3, np.nan)]))
-        cols["tow"].append(tow)
+        cols["tow"].append(tow_t)
         cols["week"].append(week)
         cols["ecef"].append(ecef)
         witness_ecef = (np.asarray(rtk._rbpf_witness_pos, dtype=float).copy()
@@ -850,7 +879,7 @@ def main() -> int:
         cols["rule_fix"].append(int(rule_ok))
         q_ = (4 if rule_ok else 5) if fix_rule is not None else (
             4 if smode == 4 else 5)
-        pos_rows.append((week, tow, ecef, q_, int(np.sum(nav.vsat[:, 0]))))
+        pos_rows.append((week, tow_t, ecef, q_, int(np.sum(nav.vsat[:, 0]))))
 
         if out is not None and any(a <= tow <= b for a, b in trace_windows):
             for rank, tb in enumerate(out['top']):
