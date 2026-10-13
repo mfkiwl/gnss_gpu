@@ -1710,6 +1710,7 @@ class RbpfFgo:
         self._conditional_cache = {}
 
         prob = self._extract(rtk, ctx)
+        self._last_prob = prob
         self._attach_witness(prob, getattr(rtk, '_rbpf_witness_prob', None))
         # maintenance AFTER extraction support known (uses today's support)
         support_sf = set()
@@ -2908,6 +2909,121 @@ class RbpfFgo:
         return sol, min_info, P3
 
 
+WL_F = 9   # band index of the wide-lane groups (sys, WL_F)
+
+
+class RbpfFgoWL(RbpfFgo):
+    """WP49 wide-lane RB-PF (RBPF_WLPF=1): the same particle machinery on
+    a wide-lane epoch problem built from the main PF's problem -- WL
+    pairs ((sys, WL_F), ref, j) on band 0's reference, WL floats T y with
+    covariance T Q T', and WL carrier rows lam_wl (b0 - b1 - N_WL) = J dx
+    next to the DD-PR rows. Diagnostic only: no feedback to the graph,
+    no witness; a slip on either band drops the satellite's WL integer."""
+
+    def __init__(self, cfg, main):
+        cfg.fb_enable = 0
+        cfg.dump_rows = 0
+        cfg.afv = 0
+        cfg.seed = cfg.seed + 7919
+        super().__init__(cfg)
+        self.main = main
+
+    def _attach_witness(self, prob, witness_prob):
+        return
+
+    def _extract(self, rtk, ctx):
+        prob = EpochProblem()
+        src = getattr(self.main, '_last_prob', None)
+        if src is None or not src.ok:
+            prob.reason = 'no_nl_problem'
+            return prob
+        idx, refs, mem = {}, {}, {}
+        for pi, (g, ref, j) in enumerate(src.pairs):
+            idx[(g[0], g[1], ref, j)] = pi
+            refs[g] = ref
+            mem.setdefault(g, set()).add(j)
+        cp = {int(src.rows_pair[r]): r for r in range(len(src.rows_v0))
+              if src.rows_iscp[r]}
+        nb = len(src.pairs)
+        T, pairs, rows = [], [], []
+        for sys_id in sorted({g[0] for g in refs}):
+            g0, g1 = (sys_id, 0), (sys_id, 1)
+            if g0 not in refs or g1 not in refs:
+                continue
+            ra, rb = refs[g0], refs[g1]
+            in1 = mem[g1] | {rb}
+            if ra not in in1:
+                continue
+            for j in sorted(mem[g0]):
+                if j not in in1:
+                    continue
+                p0 = idx[(sys_id, 0, ra, j)]
+                p1j = idx.get((sys_id, 1, rb, j)) if j != rb else None
+                p1a = idx.get((sys_id, 1, rb, ra)) if ra != rb else None
+                if (j != rb and p1j is None) or (ra != rb and p1a is None):
+                    continue
+                t = np.zeros(nb)
+                t[p0] += 1.0
+                if p1j is not None:
+                    t[p1j] -= 1.0
+                if p1a is not None:
+                    t[p1a] += 1.0
+                k = len(pairs)
+                T.append(t)
+                pairs.append(((int(sys_id), WL_F), int(ra), int(j)))
+                r0 = cp.get(p0)
+                r1j = cp.get(p1j) if p1j is not None else None
+                r1a = cp.get(p1a) if p1a is not None else None
+                if (r0 is None or (p1j is not None and r1j is None)
+                        or (p1a is not None and r1a is None)):
+                    continue
+                b1, lam1, s1 = 0.0, None, 0.0
+                if r1j is not None:
+                    b1 += src.rows_bmeas[r1j]
+                    lam1, s1 = src.rows_lam[r1j], src.rows_sig[r1j]
+                if r1a is not None:
+                    b1 -= src.rows_bmeas[r1a]
+                    lam1, s1 = src.rows_lam[r1a], max(s1, src.rows_sig[r1a])
+                lam0 = src.rows_lam[r0]
+                if lam1 is None or not (lam0 > 0 and lam1 > 0) or lam0 == lam1:
+                    continue
+                lw = 1.0 / (1.0 / lam0 - 1.0 / lam1)
+                rows.append((src.rows_J[r0], abs(lw) * math.hypot(
+                    src.rows_sig[r0] / lam0, s1 / lam1), k, lw,
+                    src.rows_bmeas[r0] - b1))
+        if len(pairs) < 2 or not rows:
+            prob.reason = 'no_wl_pairs'
+            return prob
+        T = np.asarray(T)
+        Qb = T @ src.Qb @ T.T
+        prob.pairs = pairs
+        prob.y = T @ src.y
+        prob.Qb = 0.5 * (Qb + Qb.T) + np.eye(len(pairs)) * self.cfg.qb_jitter
+        prob.Qab3 = src.Qab3 @ T.T
+        prob.pos = src.pos.copy()
+        prob.Ppos = src.Ppos.copy()
+        J, v0, sig, iscp, rp, lam, bm = [], [], [], [], [], [], []
+        for r in range(len(src.rows_v0)):
+            if not src.rows_iscp[r]:
+                J.append(src.rows_J[r]); v0.append(src.rows_v0[r])
+                sig.append(src.rows_sig[r]); iscp.append(False)
+                rp.append(-1); lam.append(0.0); bm.append(0.0)
+        for (Jr, sg, k, lw, db) in rows:
+            J.append(Jr); v0.append(0.0); sig.append(sg); iscp.append(True)
+            rp.append(k); lam.append(lw); bm.append(db)
+        prob.rows_J = np.asarray(J, dtype=float)
+        prob.rows_v0 = np.asarray(v0, dtype=float)
+        prob.rows_sig = np.asarray(sig, dtype=float)
+        prob.rows_iscp = np.asarray(iscp, dtype=bool)
+        prob.rows_pair = np.asarray(rp, dtype=int)
+        prob.rows_lam = np.asarray(lam, dtype=float)
+        prob.rows_bmeas = np.asarray(bm, dtype=float)
+        prob.cands, prob.cand_sqnorm = self._lambda_topk(
+            prob.y, prob.Qb, self.cfg.topk)
+        prob.ok = True
+        return prob
+
+
 # --------------------------------------------------------------------------
 # shared-filter subclass with the PF bolted on
 # --------------------------------------------------------------------------
@@ -2920,6 +3036,9 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
     def __init__(self, nav, imu_data, pos0=np.zeros(3), logfile=None):
         super().__init__(nav, imu_data, pos0, logfile)
         self.rbpf = RbpfFgo(RbpfConfig())
+        self.rbpf_wl = (RbpfFgoWL(RbpfConfig(), self.rbpf)
+                        if _env_i('RBPF_WLPF', 0) else None)
+        self._rbpf_wl_last = None
         self.rbpf_run_base_ar = _env_i('RBPF_BASE_AR', 1)
         self._rbpf_ctx = None
         self._rbpf_released = set()
@@ -3030,7 +3149,25 @@ class RbpfGtsamRtkTc(GtsamRtkTc):
                 self._rbpf_odo = self._rbpf_odo + dm
             ctx['odo'] = self._rbpf_odo.copy()
             ctx['track_reset'] = reset
+        if self.rbpf_wl is not None:
+            rel = set(getattr(self, '_rbpf_released', None) or set())
+            why = dict(getattr(self, '_rbpf_release_reasons', None) or {})
+            reseed = bool(getattr(self, '_rbpf_graph_reseeded', False))
         self._rbpf_last = self.rbpf.step(self, self._rbpf_ctx)
+        if self.rbpf_wl is not None:
+            # the main step consumed the release / re-seed flags: hand the
+            # WL instance the same events on its band (a slip on either
+            # band breaks the wide lane)
+            self._rbpf_released = {(s_, WL_F) for (s_, _f) in rel}
+            wl_why = {}
+            for (s_, _f), r_ in why.items():
+                wl_why.setdefault((s_, WL_F), []).extend(r_)
+            self._rbpf_release_reasons = wl_why
+            self._rbpf_graph_reseeded = reseed
+            self._rbpf_wl_last = self.rbpf_wl.step(self, self._rbpf_ctx)
+            self._rbpf_released = set()
+            self._rbpf_release_reasons = {}
+            self._rbpf_graph_reseeded = False
 
 
 class WitnessGtsamRtkTc(GtsamRtkTc):
