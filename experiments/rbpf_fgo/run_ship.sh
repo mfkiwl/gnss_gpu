@@ -62,6 +62,13 @@ elif [ "$SHIP" = "wp48" ]; then
   WP45="$WP45 --env QC_BASE_MASK=1 --env ELMIN_DEG=10.0"
   WP45="$WP45 --env HUBER_PR=1.345 --env HUBER_CP=2.0 --env PR_CNR_ERR=0.5"
   WP45="$WP45 --env DOP_V2=1 --env DOPPLER_LEVER_COMP=1 --env DOP_COV_SCALE=1.5"
+elif [ "$SHIP" = "wp50" ]; then
+  WP45="--nf 2 --band-priority C:2,6;R:- --env RBPF_KEEP=1 --fix-rule 5,15,5,15,0.1,5,1.0"
+  WP45="$WP45 --env QC_ANY_BAND=1 --env QC_ANY_BAND_CODE_ONLY=1 --env QC_ANY_BAND_PR_SCALE=10"
+  WP45="$WP45 --env QC_BASE_MASK=1 --env ELMIN_DEG=10.0"
+  WP45="$WP45 --env HUBER_PR=1.345 --env HUBER_CP=2.0 --env PR_CNR_ERR=0.5"
+  WP45="$WP45 --env DOP_V2=1 --env DOPPLER_LEVER_COMP=1 --env DOP_COV_SCALE=1.5"
+  WP45="$WP45 --fix-hyst 5,2,2,6,2,6,0.1,5 --env RBPF_CARRY=1 --carry 1 --env RBPF_DUMP_ROWS=1"
 fi
 # PPC_CITY=nagoya: the Nagoya GNSS antenna lever arm (README, IMU FRD
 # 0.593,-0.670,-1.216 m) as the runner's body FLU vector
@@ -74,7 +81,7 @@ R1FLAGS=""
 # post-reset carrier-phase hold); RBPF_R1FLAGS=0 drops them. WP45 runs one
 # configuration on every run (with the sanity reset on run1 it scores
 # within the seed spread: 67.1 vs 66.6% correct FIX); so do WP46/WP47.
-if [ "$RUN" = "1" ] && [ "${RBPF_R1FLAGS:-1}" != "0" ] && [ "$SHIP" != "wp45" ] && [ "$SHIP" != "wp46" ] && [ "$SHIP" != "wp47" ] && [ "$SHIP" != "wp48" ]; then
+if [ "$RUN" = "1" ] && [ "${RBPF_R1FLAGS:-1}" != "0" ] && [ "$SHIP" != "wp45" ] && [ "$SHIP" != "wp46" ] && [ "$SHIP" != "wp47" ] && [ "$SHIP" != "wp48" ] && [ "$SHIP" != "wp50" ]; then
   R1FLAGS="--sanity-enable 1 --env SANITY_PR_ONLY=1 --env RECOV_CP_HOLD_EPOCHS=5 --env RECOV_CP_RELEASE_THRESH=2.0 --env RECOV_CP_RELEASE_COUNT=5 --env SANITY_MAX_MEDIAN_RATIO=5.0"
 fi
 mkdir -p "$HERE/results"

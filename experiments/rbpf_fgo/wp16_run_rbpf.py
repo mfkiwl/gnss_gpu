@@ -262,6 +262,16 @@ def main() -> int:
                          "the DDPR quality exceeds it): the .pos status and the "
                          "npz `rule_fix` column use it; positions and the "
                          "PF are unchanged. Empty = the PF's own fix flag")
+    ap.add_argument("--fix-hyst", default="",
+                    help="WP50 hysteresis label L,G,t_idx,F,t2_idx,F2,M,B[,Q]: "
+                         "FIX once --fix-rule held L consecutive epochs, then "
+                         "while this continuation rule holds (bridging G "
+                         "failed epochs)")
+    ap.add_argument("--carry", type=int, default=0,
+                    help="WP50 forward integer carry (needs RBPF_CARRY=1): "
+                         "an epoch the label leaves unfixed is labelled FIX "
+                         "at the carried-integer position while the last "
+                         "FIX epoch's integer set still fits the DD carrier")
     ap.add_argument("--band-priority", default="",
                     help="WP45: per-system RINEX band order overriding the "
                          "auto-detect L1>L2>L5 priority, e.g. 'C:2,6,5' picks "
@@ -363,11 +373,21 @@ def main() -> int:
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
         "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
         "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
-        "rb_ne_mass", "rule_fix", "rb_wl_n", "rb_wl_ratio", "rb_wl_rms",
+        "rb_ne_mass", "rule_fix", "hyst_fix", "carry_fwd", "rb_wl_n", "rb_wl_ratio", "rb_wl_rms",
         "wl_xyz", "wlpf_ok", "wlpf_nb_at", "wlpf_nb_at_ne", "wlpf_ne_mass",
         "wlpf_npairs", "wlpf_xyz") + _FCOLS}
     fix_rule = (tuple(float(x) for x in args.fix_rule.split(","))
                 if args.fix_rule else None)
+    hyst_rule, hyst = None, None
+    if args.fix_hyst:
+        from integer_carry import HysteresisLabel
+        _h = [float(x) for x in args.fix_hyst.split(",")]
+        hyst = HysteresisLabel(entry=int(_h[0]), bridge=int(_h[1]))
+        hyst_rule = tuple(_h[2:])
+    carrier = None
+    if args.carry:
+        from integer_carry import IntegerCarry
+        carrier = IntegerCarry()
     pos_rows = []
     rtk = None
 
@@ -462,6 +482,8 @@ def main() -> int:
             rb_afv_n=np.asarray(cols["rb_afv_n"], dtype=int),
             rb_afv_frac=np.asarray(cols["rb_afv_frac"], dtype=float),
             rule_fix=np.asarray(cols["rule_fix"], dtype=int),
+            hyst_fix=np.asarray(cols["hyst_fix"], dtype=int),
+            carry_fwd=np.asarray(cols["carry_fwd"], dtype=int),
             rb_wl_n=np.asarray(cols["rb_wl_n"], dtype=int),
             rb_wl_ratio=np.asarray(cols["rb_wl_ratio"], dtype=float),
             rb_wl_rms=np.asarray(cols["rb_wl_rms"], dtype=float),
@@ -800,6 +822,31 @@ def main() -> int:
                            if out is not None else float("nan"))
         rule_ok = (_rule_fix(fix_rule, out, cols, ecef, flt_ecef)
                    if fix_rule is not None and smode != 6 else False)
+        hyst_ok = rule_ok
+        if hyst is not None:
+            cont_ok = (_rule_fix(hyst_rule, out, cols, ecef, flt_ecef)
+                       if smode != 6 else False)
+            hyst_ok = hyst.update(tow, rule_ok, cont_ok)
+            rule_ok = hyst_ok
+        carried = False
+        if carrier is not None:
+            rows_c = out.get("carry_rows") if out is not None else None
+            p0_c = out.get("rows_pos0") if out is not None else None
+            if rows_c is None or p0_c is None or smode == 6:
+                carrier.reset()
+                carrier.t_prev = tow
+            elif hyst_ok:
+                carrier.init(rows_c, p0_c, ecef, tow)
+            else:
+                x_c = carrier.step(rows_c, p0_c, tow)
+                if x_c is not None:
+                    carried = True
+                    rule_ok = True
+                    ecef = np.asarray(x_c, dtype=float)
+                    cols["ecef"][-1] = ecef
+                    cols["err3d"][-1] = _err(ecef)
+        cols["hyst_fix"].append(int(hyst_ok))
+        cols["carry_fwd"].append(int(carried))
         cols["rule_fix"].append(int(rule_ok))
         q_ = (4 if rule_ok else 5) if fix_rule is not None else (
             4 if smode == 4 else 5)

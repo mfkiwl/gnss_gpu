@@ -2333,8 +2333,13 @@ class RbpfFgo:
             out.update(self._wl_fix(prob))
 
         rows_ = None
-        if cfg.dump_rows or cfg.afv:
+        carry_ = _env_i('RBPF_CARRY', 0)
+        if cfg.dump_rows or cfg.afv or carry_:
             rows_ = self._dump_rows(rtk, ctx, prob, map_H, pair_mass)
+        if carry_:
+            # WP50: rows for the runner's integer carry (integer_carry.py)
+            out['carry_rows'] = rows_
+            out['rows_pos0'] = np.asarray(prob.pos, dtype=float).copy()
         if cfg.afv and rows_ is not None and len(rows_):
             x_ = np.asarray(out['pos'], dtype=float)
             b_ = rows_[:, 10] - rows_[:, 7:10] @ (x_ - prob.pos) / rows_[:, 6]
