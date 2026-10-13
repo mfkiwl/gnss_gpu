@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP52** (`experiments/rbpf_fgo/`, negative result): optional
+  `RBPF_CARRY_FB=1|2` holds the integer carry's set in the shared graph.
+  Carry episodes last a median of 0.4 s, so it does not raise the
+  real-time FIX rate (seed 20260710: Tokyo 1 63.4 → 63.6%, Nagoya 3 32.0 →
+  29.0%, Nagoya 2 wrong share 0.12 → 0.48%). Default off.
 - **RB-FGO-PF WP51** (`experiments/rbpf_fgo/`): a post-processed output
   from a second, backward pass. `wp16_run_rbpf.py --reverse 1` runs the
   unchanged filter on a time-mirrored copy of the run (`reverse_time.py`),

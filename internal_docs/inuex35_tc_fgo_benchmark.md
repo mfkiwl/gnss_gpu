@@ -803,6 +803,28 @@ The backward pass helps most on Nagoya 3 (+8.9 pp over the carry steps);
 alone it fixes 42.9% of epochs there, against 31.0% forward. Compute: the post-processed output runs the
 filter twice (backward runs take as long as forward ones).
 
+### WP52 (2026-10-13): carry feedback into the shared graph — negative result
+
+`RBPF_CARRY_FB=1` holds the forward carry's integer set in the shared graph
+(`RbpfFgo.carry_feedback`, the same `_committed` / `_inject_hold` path as
+the PF's own feedback) on carried epochs, and keeps the PF's mass release
+off those pairs while the carry lasts; `=2` also holds it on labelled FIX
+epochs. The aim was to keep the float anchored where the PF's agreement
+dips, so the real-time label recovers sooner. Default off.
+
+| seed 20260710, correct FIX (wrong / FIX) | Tokyo 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|
+| WP50 real time | 63.4% (0.05%) | 52.4% (0.12%) | 32.0% (0.00%) |
+| `RBPF_CARRY_FB=1` | 63.6% (0.09%) | 52.6% (0.48%) | 29.0% (0.00%) |
+| `RBPF_CARRY_FB=2` | – | – | 29.0% (0.00%) |
+
+Forward carry episodes are rare and short: 2–3.5% of epochs, median 2
+epochs (0.4 s), at most 53–149 epochs (Tokyo 1, Nagoya 2, Nagoya 3). The
+feedback acted on 17–367 epochs, so the changes above are within the seed
+spread, except that the wrong share rose on Nagoya 2. The hard stretches
+end the carry within a second, which is exactly where anchoring would have
+been needed. Not pursued further.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
