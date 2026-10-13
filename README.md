@@ -198,6 +198,8 @@ used only for diagnosis, never for the FIX label. The design rationale is in
 the [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) and
 [RB-FGO-PF design](internal_docs/rbpf_fgo_design.md). The runtime and
 options are in [`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
+The [technical report](docs/rbpf_fgo_report.md) summarizes the method,
+results, negative results and limits through WP50.
 
 ## Particle-filter localization on OpenStreetMap
 
@@ -561,6 +563,7 @@ flowchart LR
 | Check GPU throughput | [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md) |
 | Continue current GSDC2023 Kaggle work | [`internal_docs/plan.md`](internal_docs/plan.md) |
 | Understand current PPC production state | [`internal_docs/ppc_current_status.md`](internal_docs/ppc_current_status.md) |
+| Read the RB-FGO-PF technical report | [`docs/rbpf_fgo_report.md`](docs/rbpf_fgo_report.md) |
 | Find durable decisions and negative results | [`internal_docs/decisions.md`](internal_docs/decisions.md) |
 | Work on reusable Python code | [`python/gnss_gpu/`](python/gnss_gpu/) |
 | Work on native CUDA/C++ code | [`src/`](src/) |
