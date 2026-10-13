@@ -2,7 +2,7 @@
 
 # gnss_gpu
 
-**GPU-accelerated GNSS positioning for the urban canyon — particle filters, ray-traced NLOS, and factor-graph experiments in real cities.**
+**GPU GNSS positioning for urban canyons: particle filters, ray-traced NLOS and factor graphs on real city data.**
 
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/rsasaki0109/gnss_gpu/actions/workflows/ci.yml/badge.svg)](https://github.com/rsasaki0109/gnss_gpu/actions/workflows/ci.yml)
@@ -15,7 +15,7 @@
   <img src="docs/assets/media/particles/particle_viz_odaiba.gif" alt="GPU particle-filter localization on OpenStreetMap in Odaiba" width="49%">
   <img src="docs/assets/media/los-nlos/los_nlos_deckgl.gif" alt="GPU urban GNSS signal simulation: ray-traced LOS/NLOS over PLATEAU buildings in Shinjuku" width="49%">
 </p>
-<p align="center"><sub>Left: GPU particle filter tracking a real UrbanNav Odaiba drive. Right: ray-traced LOS/NLOS signal simulation over PLATEAU 3D buildings.</sub></p>
+<p align="center"><sub>Left: GPU particle filter on a real UrbanNav Odaiba drive. Right: ray-traced LOS/NLOS over PLATEAU 3D buildings.</sub></p>
 
 [**v0.3 release audit**](https://rsasaki0109.github.io/gnss_gpu/v0.3.0.html) · [Live results snapshot](https://rsasaki0109.github.io/gnss_gpu/) · [Technical report](docs/technical_report_v0.3.0.md) · [Benchmarks](benchmarks/RESULTS.md) · [Examples](examples/) · [Input shapes](docs/common_input_shapes.md) · [GSDC2023 solution](docs/gsdc2023_solution.md) · [Experiment log](docs/experiments.md) · [Decisions](docs/decisions.md) · [How it's built](internal_docs/plan.md)
 
@@ -25,15 +25,13 @@
 
 ## What is this?
 
-`gnss_gpu` is a research workspace for pushing **smartphone- and survey-grade GNSS
-positioning in dense cities**, where buildings block and reflect satellite signals and
-classic EKF/RTK pipelines fall apart. It pairs CUDA/C++ kernels with Python tooling to
-run **GPU particle filters, double-difference carrier tracking, ray-traced line-of-sight
-checks against 3D city meshes, and factor-graph optimization** — then scores them
-honestly against RTKLIB and EKF baselines on real public datasets (UrbanNav, PLATEAU,
-and the GSDC2023 Kaggle smartphone-decimeter challenge).
+A research workspace for GNSS positioning in dense cities, where buildings
+block and reflect signals. CUDA/C++ kernels and Python tools run GPU particle
+filters, double-difference carrier tracking, ray tracing against 3D city
+meshes and factor-graph optimization, scored against RTKLIB and EKF baselines
+on public data (UrbanNav, PLATEAU, PPC, GSDC2023).
 
-The v0.3 reproducibility archive can be rebuilt and verified with one command:
+Rebuild and verify the v0.3 reproducibility archive:
 
 ```bash
 python tools/build_release_bundle.py --output dist/reproducibility --archive dist/gnss_gpu-v0.3.0-reproducibility.zip
@@ -41,33 +39,27 @@ python tools/build_release_bundle.py --output dist/reproducibility --archive dis
 
 ## Why you might care
 
-- 🛰️ **Complements RTK where it fails.** On UrbanNav Tokyo *Odaiba*, modern RTK engines
-  have the better median: libgnss++ 0.07 m, RTKLIB demo5 0.34 m. But they leave 3–22% of
-  epochs without a solution or with large outliers. The GPU PF smoother (1.50 m median,
-  98% coverage) is not a better standalone engine. Using it to fill the libgnss++ RTK gaps
-  raises the share of all epochs within 5 m from 74.5% to **87.8%**, above RTKLIB's 86.6%
-  (Shinjuku: 76.4% → **84.2%**, RTKLIB 73.5%).
-- ⚡ **It's genuinely fast.** With the device-resident `ParticleFilterDevice`, a full
-  **1,000,000-particle** predict → weight → resample step runs in **32 ms** (≈30 Hz) on a
-  6 GB Turing-generation consumer GPU, and a 10,000-epoch batch WLS solve takes **~3 ms**.
-  See [`benchmarks/RESULTS.md`](benchmarks/RESULTS.md).
-- 🏙️ **City-aware NLOS handling.** Ray tracing against PLATEAU 3D building meshes does
-  line-of-sight / non-line-of-sight classification with a **57.8× BVH speedup**, so urban
-  multipath can be rejected instead of trusted.
-- 📈 **Honest, reproducible scoring.** Every headline number comes from a fixed
-  same-input/same-metric comparison, and the [live snapshot](https://rsasaki0109.github.io/gnss_gpu/)
-  is regenerated straight from the committed result CSVs.
+- 🛰️ **Fills RTK gaps.** On UrbanNav Odaiba, RTK has the better median
+  (libgnss++ 0.07 m, RTKLIB demo5 0.34 m) but misses 3–22% of epochs. Filling
+  libgnss++ gaps with the GPU PF (1.50 m median, 98% coverage) raises epochs
+  within 5 m from 74.5% to **87.8%** (RTKLIB 86.6%; Shinjuku 76.4% →
+  **84.2%**, RTKLIB 73.5%).
+- ⚡ **Fast.** A **1,000,000-particle** predict → weight → resample step takes
+  **32 ms** on a 6 GB Turing GPU; a 10,000-epoch batch WLS solve **~3 ms**
+  ([benchmarks](benchmarks/RESULTS.md)).
+- 🏙️ **City-aware NLOS.** LOS/NLOS from PLATEAU 3D meshes, **57.8× BVH speedup**.
+- 📈 **Reproducible scoring.** Same-input, same-metric comparisons; the
+  [live snapshot](https://rsasaki0109.github.io/gnss_gpu/) is built from
+  committed CSVs.
 
 ## RB-FGO-PF: integer ambiguity without premature collapse
 
-The milestone-2 estimator treats integer ambiguities as persistent discrete
-**basins** and Rao-Blackwellizes the continuous fixed-lag GNSS/IMU graph. All
-systems below are scored by the same script on the six PPC runs (Tokyo and
-Nagoya). A FIX is correct when its 3D error is under 0.5 m, and the
-denominator is every rover epoch. The shipped WP50 configuration holds the
-wrong-FIX share at or below 0.20% of its fixes on all six runs, for every
-seed. Its real-time output uses no future data. A 15 s fixed-lag smoother
-(`integer_smoother.py`) adds 2.5–8.7 pp more.
+Particles carry integer ambiguity hypotheses ("basins") on one shared float
+GNSS/IMU factor graph (GTSAM), so a wrong fix competes with the right one
+instead of being locked in by a ratio test. Six PPC runs, one scorer: a FIX
+is correct within 0.5 m (3D), over all rover epochs. WP50 keeps wrong FIX at
+or below 0.20% on every run and seed. Its real-time output uses no future
+data; a 15 s fixed lag adds 2.5–8.7 pp.
 
 | Correct FIX (wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -85,27 +77,6 @@ seed. Its real-time output uses no future data. A 15 s fixed-lag smoother
 <p align="center">
   <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP50 (real time and 15 s fixed lag) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
 </p>
-
-WP45 selected its FIX label on Tokyo alone. On Nagoya 2 and 3 that label
-marked 8.5% and 16.2% of fixes wrong. WP46 keeps the WP45 filter and
-positions, and selects a stricter label leave-one-run-out over Tokyo 1–3
-and Nagoya 1–2. It costs 8–10 pp of correct FIX on Tokyo. libgnss++ KF-RTK
-fixes more epochs, but up to 29% of its fixes are wrong. Gating its Tokyo
-output to a 1% wrong-FIX share on the run itself (an optimistic, in-sample
-gate) leaves 52.8 / 76.4 / 68.3%. Nagoya 3 (Sakae, narrow sky) locked
-wrong integer sets with high posterior agreement under WP46, and no label
-rule kept it below 1%. Too few satellites kept both bands there, so the
-shared graph often had too few carrier pairs to resolve. WP47 keeps the
-satellites with one usable band as down-weighted code-only rows, and
-re-selects the label over all six runs. Nagoya 3 goes from 12.3% correct
-FIX with 6.2% wrong to 26.3% with 0.5% wrong, and Tokyo is unchanged. The
-[benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) has the
-details (WP44–WP47).
-
-One shared float factor graph supplies the Gaussian part. The particles
-carry only integer hypotheses ("basins"), so a wrong fix competes with the
-right one through accumulated likelihood instead of being locked in by a
-single ratio test. Each epoch of the shipped configuration runs as follows:
 
 ```mermaid
 flowchart TD
@@ -135,10 +106,7 @@ flowchart TD
     FB -.-> FGO
 ```
 
-Cycle slips and outages in the shared graph remove the affected ambiguity
-from every particle in the same epoch. The design rationale is in
-[RB-FGO-PF design](internal_docs/rbpf_fgo_design.md), and the code is in
-[`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
+Slips and outages remove the affected ambiguity from every particle.
 
 | Shipped RB-FGO-PF (WP50) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -150,62 +118,19 @@ from every particle in the same epoch. The design rationale is in
 | PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
 
-WP45 (2026-10-12) runs one configuration on all runs. It makes three
-changes:
-
-- **Satellite set.** With three bands requested, cssrlib's quality check
-  dropped every satellite that lacked any one of them (most often L5),
-  although the DD factors use two. BeiDou also used B1C, which only BDS-3
-  transmits. WP45 requests two bands and uses BeiDou B1I + B3I, so the
-  graph sees 25 instead of 15 satellites at a sampled Tokyo run1 epoch.
-  GLONASS stays off.
-- **Basin persistence.** Only real cycle slips remove an integer from the
-  basins. A re-seed of the shared graph keeps them.
-- **FIX label.** The reported FIX flag is a causal rule on the PF's own
-  per-pair agreement mass, chosen leave-one-run-out. Positions are the WP43
-  tracked beliefs. WP46 replaces the Tokyo-selected rule with one selected
-  over Tokyo and Nagoya: at least 15 MAP pairs, among all particles or among
-  the non-empty ones, with agreement mass above 0.95.
-
-Tokyo run1 gains most: +21 pp correct FIX over WP43 with the WP46 label.
-The satellite set alone accounts for most of it. WP47 (2026-10-13) adds
-satellites with one usable band (code only, sigma x10, never the DD
-reference, their residuals charged to them alone), a 10° mask on both
-receivers, and the label `nb_at[0.99] >= 15` or the shared graph's LAMBDA
-fix with 9+ ambiguities. WP48 (2026-10-13) improves the shared float
-graph's measurement model: Huber losses on DD pseudorange and carrier, a
-C/N0 term in the pseudorange variance, and a new Doppler velocity prior
-(per-satellite rows without BeiDou GEO, whose Doppler was 3–22 m/s off,
-C/N0-weighted, with the lever-arm rotation term and the solve's own
-covariance). PPC OFFICIAL rises 2–8 pp on every run. The label is
-re-selected with every seed at or below 0.7% wrong. `RBPF_SHIP=wp47`,
-`wp46`, `wp45` and `wp43` reproduce the previous releases.
-
-WP50 (2026-10-13) changes how the label uses time. A wrong basin is the true
-trajectory shifted by a fixed offset, so carrier phase cannot reveal it while
-the geometry is static, and the code is biased the same way. Wrong fixes
-come in short flickers, though, and a correct integer set stays valid for as
-long as the carrier stays locked. The label now enters FIX only after the
-WP48 rule has held for 5 epochs (1 s), and stays FIX while 6+ pairs agree
-above 0.90. When the label drops, the last FIX's single-difference integers
-are carried forward while the raw DD carrier keeps fitting them (8+ pairs,
-0.15 cycle; slipped satellites leave the set, clean new ones join), and the
-epoch is reported FIX at the carried-integer position. `integer_smoother.py`
-runs the same carry backward from later fixes, a 15 s fixed-lag output.
-`RBPF_SHIP=wp48` reproduces WP48. `PPC_CITY=nagoya` selects the
-Nagoya antenna lever arm. An external RTK engine is
-used only for diagnosis, never for the FIX label. The design rationale is in
-the [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) and
-[RB-FGO-PF design](internal_docs/rbpf_fgo_design.md). The runtime and
-options are in [`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
-The [technical report](docs/rbpf_fgo_report.md) summarizes the method,
-results, negative results and limits through WP50.
+WP45 added the two-band satellite set and basin persistence, WP47 one-band
+code-only satellites, WP48 Huber / C/N0 weighting and Doppler v2, WP50 the
+hysteresis label and integer carry. No external RTK engine feeds the FIX
+label. `RBPF_SHIP=wp48` … `wp43` reproduce earlier releases;
+`PPC_CITY=nagoya` selects the Nagoya lever arm. Details:
+[technical report](docs/rbpf_fgo_report.md) ·
+[benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) ·
+[design](internal_docs/rbpf_fgo_design.md) ·
+[code](experiments/rbpf_fgo/README.md).
 
 ## Particle-filter localization on OpenStreetMap
 
-The README headline is not just a table: the sampled particle cloud is localized
-on the real street network, with the posterior contracting around the driven
-UrbanNav route while the full-view trail is drawn from the continuous trajectory.
+The particle cloud is localized on the real street network (UrbanNav Odaiba).
 
 ### Results at a glance
 
@@ -219,49 +144,34 @@ UrbanNav route while the full-view trail is drawn from the continuous trajectory
 | **PF + RobustClear-10K** (external mainline) | UrbanNav, 5 seq / 2 cities | — | **66.6 m** |
 | EKF baseline | UrbanNav, 5 seq / 2 cities | — | 93.25 m |
 
-All Odaiba rows were measured on 2026-10-04 on the public data subset, with the
-base-station coordinate calibrated once and shared by every method
+Odaiba rows: 2026-10-04, public subset, one shared base calibration
 ([calibration](configs/urbannav/tokyo_base_cref0001.json),
 [RTK record](internal_docs/urbannav_rtk_baselines_2026_10_03.md),
-[PF record](internal_docs/urbannav_pf_dd_satellite_ids_2026_10_04.md)). P50/RMS
-are over the epochs each method outputs, so RTK coverage gaps do not count
-against it here. The PF 100K row is the smoothed output of preset
-`odaiba_stop_detect`, averaged over 5 seeds. Until 2026-10-04 its DD terms never
-ran on real data, because libgnsspp rows carried no satellite number; that is
-why the April 2026 figure (1.36 m / 4.11 m) could not be reproduced. With the
-fix, the RMS matches it. The anchored row redraws the PF cloud at every RTK FIX
-and corrects the IMU heading only from consecutive fixes (`--rtk-anchor-pos`,
-`--rtk-anchor-heading`) and holds still while the vehicle is parked (preset
-`urbannav_rtk_anchored`); it is within 3 m on 97% of all reference epochs (RTKLIB
-demo5: 69%). Its σ_pos 0.1 was chosen across Odaiba and Shinjuku
-([record](internal_docs/urbannav_pf_rtk_anchor_2026_10_04.md)), and the same configuration
-improves all three PPC Tokyo routes without retuning
-([PPC record](internal_docs/ppc_pf_rtk_anchor_2026_10_04.md)). Platforms without a wheel
-odometer use preset `rtk_anchored_doppler` (6 PPC routes: 90.5% within 5 m vs
-78.6% for libgnss++ RTK alone). The anchored row is a 5-seed mean of the current preset (gnssplusplus `9d89a58a`);
-the other rows with `304798e7`, which lacked carrier phase and Doppler on PF inputs
-(about 0.2 m difference at seed 42). The [live results snapshot](https://rsasaki0109.github.io/gnss_gpu/) and
-`examples/demo_pf_localization_improvement.py` show these numbers.
+[PF record](internal_docs/urbannav_pf_dd_satellite_ids_2026_10_04.md)).
+P50/RMS are over each method's own output epochs. PF 100K is preset
+`odaiba_stop_detect`, 5 seeds. The anchored PF redraws the cloud at every RTK
+FIX and is within 3 m on 97% of reference epochs (RTKLIB demo5: 69%)
+([record](internal_docs/urbannav_pf_rtk_anchor_2026_10_04.md)); it also
+improves all three PPC Tokyo routes
+([PPC record](internal_docs/ppc_pf_rtk_anchor_2026_10_04.md)). Without a wheel
+odometer, use preset `rtk_anchored_doppler` (6 PPC routes: 90.5% within 5 m vs
+78.6% for RTK alone). Anchored row: gnssplusplus `9d89a58a`; other rows
+`304798e7`.
 
 ### PF-only RTK stretch campaign
 
-The current development campaign keeps the full epoch denominator, uses no
-reference truth or runtime FGO, and requires declared false FIX at or below 1%.
-Latest `libgnss++` selected results are shown only as an external reference;
-every imported RTK idea must still pass the PF posterior and promotion gates.
+Full epoch denominator, no truth or runtime FGO, declared false FIX ≤ 1%.
+libgnss++ is an external reference only.
 
 | Full-epoch matched 3D | PF-only locked current | latest libgnss++ reference | v0.3 promotion floor |
 |---|---:|---:|---:|
 | Tokyo run1 | **46.51%** (5,546 / 11,924) | 80.02% | 45.00% |
 | Nagoya run1 | **75.37%** (5,715 / 7,583) | 85.84% | 69.55% non-degradation |
 
-The full WP172 dual-RTK candidate supply is measured at a conservative
-42.653 ms/epoch when executed sequentially (21.826 ms/epoch concurrently),
-under the 100 ms production budget. WP173 then declares FIX only after a
-standard MLAMBDA ratio of at least 3.0 survives five contiguous epochs with at
-least six satellites and the complete WP172 consensus gate. Tokyo declares
-1,296/11,924 FIX epochs (10.87%) and Nagoya declares 1,370/7,583 (18.07%),
-with zero audited false FIX in both runs.
+WP173 declares FIX once an MLAMBDA ratio ≥ 3.0 holds for 5 epochs with 6+
+satellites and the WP172 consensus gate: Tokyo 10.87%, Nagoya 18.07% of
+epochs, zero audited false FIX. Candidate supply costs 42.7 ms/epoch, under
+the 100 ms budget.
 
 <p align="center">
   <img src="docs/assets/figures/pf_only_rtk_stretch.svg" alt="PF-only Tokyo and Nagoya RTK stretch progress, external libgnss++ reference, targets, and truth-free promotion gates" width="900">
@@ -281,10 +191,9 @@ with zero audited false FIX in both runs.
   >
 </p>
 
-> The external-validation RMS is high in absolute terms because it averages the hardest
-> deep-urban sequences (including failure stretches). The point is the *relative* gap: the
-> GPU PF stack consistently wins against EKF and RTKLIB on the same epochs. Full tables,
-> figures, and limitations live on the [results snapshot](https://rsasaki0109.github.io/gnss_gpu/).
+> The external-validation RMS is high because it averages the hardest
+> deep-urban sequences; what matters is the gap to EKF and RTKLIB on the same
+> epochs. See the [results snapshot](https://rsasaki0109.github.io/gnss_gpu/).
 
 <p align="center">
   <img
@@ -298,22 +207,18 @@ with zero audited false FIX in both runs.
   <a href="docs/assets/media/particles/particle_viz_odaiba.mp4">Open the Odaiba particle-cloud video</a>
 </p>
 
-For the zero-data terminal demo behind this visual:
+Zero-data terminal demo (Odaiba comparison, PPC held-out check, PLATEAU mask
+replay gain):
 
 ```bash
 PYTHONPATH=python:. python3 examples/demo_pf_localization_improvement.py
 ```
 
-It reads checked-in artifacts and prints the current UrbanNav Odaiba comparison (RTKLIB
-demo5, libgnss++ RTK, the PF smoother and the RTK-anchored PF), the PPC held-out check,
-and the PLATEAU LOS/NLOS mask replay gain for PF.
-
 ## Ray-traced NLOS diffraction on real city data
 
-Beyond *rejecting* blocked satellites, the package models **why** an urban pseudorange is
-biased — knife-edge (ITU-R P.526) and **UTD** (Kouyoumjian–Pathak) diffraction plus
-specular reflection over **PLATEAU** 3D building meshes — and scores the physics against
-real **UrbanNav** residuals.
+Models why urban pseudoranges are biased — knife-edge (ITU-R P.526) and
+**UTD** (Kouyoumjian–Pathak) diffraction plus reflection over **PLATEAU**
+meshes — and scores it against real **UrbanNav** residuals.
 
 <p align="center">
   <img
@@ -327,12 +232,9 @@ real **UrbanNav** residuals.
   <a href="docs/assets/media/los-nlos/los_nlos_deckgl.html">Open the full LOS/NLOS deck.gl sweep</a>
 </p>
 
-A subtle but decisive step is correcting each satellite to signal-**transmission** time
-(with the Sagnac rotation). Without it a per-satellite *tens-of-metres* range error swamps
-the multipath signal; with it the residual becomes a clean NLOS ground truth (LOS median
-**1.0 m**, AUC **0.92**). On that clean reference, **UTD reproduces the measured
-multipath-bias distribution better than knife-edge** — reproducing the literature
-(Zhang & Hsu, 2021) on properly corrected real data.
+Correcting each satellite to transmission time (with Sagnac) gives a clean
+NLOS reference (LOS median **1.0 m**, AUC **0.92**). On it, **UTD matches the
+measured bias distribution better than knife-edge**, as in Zhang & Hsu (2021).
 
 <div align="center">
 <img src="docs/assets/figures/nlos_diffraction_benchmark.png" alt="Ray-traced NLOS diffraction (UTD vs knife-edge) vs real UrbanNav Odaiba residuals" width="860">
@@ -343,22 +245,16 @@ multipath-bias distribution better than knife-edge** — reproducing the literat
 | knife-edge (ITU-R P.526) | 1.84 | 0.46 |
 | **UTD (Kouyoumjian–Pathak)** | **1.70** | **0.29** |
 
-> UrbanNav Tokyo *Odaiba*, 60 epochs over a 249k-triangle PLATEAU mesh. Reproduce with
-> `PYTHONPATH=examples python examples/plot_nlos_diffraction_figure.py Odaiba 60`
-> (uses the installed package's CUDA ray-tracing for line-of-sight checks).
+> UrbanNav Odaiba, 60 epochs, 249k-triangle PLATEAU mesh. Reproduce with
+> `PYTHONPATH=examples python examples/plot_nlos_diffraction_figure.py Odaiba 60`.
 
 ## Simulate GNSS anywhere in a city — and predict how well it will work
 
-The same city-aware physics also runs *forward*: given a place (or a route), a time
-window, the constellations, and a PLATEAU mesh, the **scenario engine**
-(`gnss_gpu.scenario`) simulates the observables a receiver would see there — visible
-satellites, LOS/NLOS, pseudorange with clock/ionosphere/troposphere/multipath errors,
-C/N0 and Doppler — and can export them as **RINEX 3.04 OBS** (`--rinex-out`) to feed
-RTKLIB or any receiver-evaluation pipeline. On top of it, **GPU area sweeps**
-(`gnss_gpu.coverage_map`) batch the line-of-sight rays for *all grid cells × all
-satellites* into single CUDA launches and map predicted GNSS quality — visible/LOS
-counts, availability, DOP, expected horizontal error — over a whole district in
-seconds.
+`gnss_gpu.scenario` simulates what a receiver sees at a place or along a route
+(visible satellites, LOS/NLOS, pseudorange errors, C/N0, Doppler) and exports
+**RINEX 3.04 OBS** (`--rinex-out`). `gnss_gpu.coverage_map` batches all grid
+cells × satellites into single CUDA launches to map visibility, availability,
+DOP and expected error over a district in seconds.
 
 <div align="center">
 <img src="docs/assets/figures/coverage_map_odaiba_hpe.png" alt="Predicted horizontal-position-error map over the Odaiba PLATEAU mesh" width="620">
@@ -369,27 +265,26 @@ PYTHONPATH=python python examples/demo_scenario_engine.py   # observables at a p
 PYTHONPATH=python python examples/demo_coverage_map.py      # per-cell quality map (PNG + deck.gl)
 ```
 
-Three worked use cases on the same real Odaiba data (UrbanNav route + PLATEAU mesh):
+Use cases on real Odaiba data (UrbanNav route + PLATEAU mesh):
 
 | Use case | Demo | What it surfaces |
 |---|---|---|
-| **Test-course / route evaluation** | `demo_route_accuracy.py` | Availability (≥4 LOS) stays 100%, yet expected HPE spikes past 300 m where the surviving 4-satellite geometry goes near-singular — a quality cliff a satellite-count threshold would miss. |
-| **RTK base-station placement** | `demo_rtk_base_placement.py` | Open-sky candidate cells tie on LOS count and HDOP; the **common-view satellite count** against the rover route is what actually ranks them. |
-| **Site multipath assessment** | `demo_urban_multipath.py` | Fixed-site sky map of LOS/NLOS tracks with per-satellite multipath excess and C/N0 (UTD diffraction): 28.6% NLOS, 18.9 dB-Hz LOS-vs-NLOS C/N0 gap at a canyon point. |
+| **Test-course / route evaluation** | `demo_route_accuracy.py` | Availability (≥4 LOS) stays 100% while expected HPE spikes past 300 m on near-singular geometry. |
+| **RTK base-station placement** | `demo_rtk_base_placement.py` | Candidates tie on LOS count and HDOP; the **common-view satellite count** with the rover route ranks them. |
+| **Site multipath assessment** | `demo_urban_multipath.py` | Sky map of LOS/NLOS tracks with multipath excess and C/N0 (UTD): 28.6% NLOS, 18.9 dB-Hz LOS-vs-NLOS C/N0 gap. |
 
 <div align="center">
 <img src="docs/assets/figures/route_accuracy_odaiba.png" alt="Expected horizontal position error along a real Odaiba route with an available-but-near-singular segment" width="620">
 </div>
 
-Unlike closed propagation tools, every model here is scored against real measured
-residuals (the UTD-vs-knife-edge benchmark above), and the whole pipeline is open —
+Every model is scored against measured residuals, and the pipeline is open
 from CityGML parsing to the CUDA kernels.
 
 ## Quick start
 
 ### GPU-first start
 
-Assumes an NVIDIA GPU, a current driver, and a CUDA Toolkit with `nvcc`.
+Needs an NVIDIA GPU, a current driver and a CUDA Toolkit with `nvcc`.
 
 ```bash
 git clone --recurse-submodules https://github.com/rsasaki0109/gnss_gpu.git
@@ -404,10 +299,9 @@ gnss-gpu doctor
 gnss-gpu run --preset signal-acquisition
 ```
 
-`doctor` checks the driver, GPU, CUDA compiler, CMake, native bindings, and a
-signal-simulation → acquisition CUDA round-trip (`READY TO BUILD` without
-bindings, `READY TO RUN` with). On Windows use `python` in a Developer
-PowerShell; target an architecture with `gnss-gpu build --architecture 89`.
+`doctor` checks the driver, GPU, compiler, CMake, bindings and a CUDA
+round-trip. On Windows, use `python` in a Developer PowerShell; set the
+architecture with `gnss-gpu build --architecture 89`.
 
 ### GPU experiment loop
 
@@ -418,21 +312,17 @@ gnss-gpu run --preset urbannav-pf --input data/urbannav/Tokyo/Odaiba
 gnss-gpu compare runs/urbannav-pf-baseline runs/urbannav-pf-candidate
 ```
 
-Both presets write a timestamped `runs/` directory with a common v1
-`manifest.json` (`schema`, `version`, `git_sha`, `backend`, `gpu`,
-`input_hashes`, `parameters`, `metrics`, hashed `artifacts`), per-estimator
-summaries, and reports. `compare` prints precision/runtime deltas and writes
-`comparison.md`; use `--json PATH` for machine-readable output.
-
-The local-data path never downloads anything: it expects rover/base RINEX OBS, a
-broadcast navigation file, and `reference.csv` (optional `imu.csv`). Fetch the
-Tokyo subset explicitly with:
+Each run writes a `runs/` directory with a v1 `manifest.json` (git SHA, GPU,
+input hashes, parameters, metrics, artifacts); `compare` writes
+`comparison.md` (`--json PATH` for JSON). Local data (rover/base RINEX, nav,
+`reference.csv`, optional `imu.csv`) is never downloaded implicitly. Fetch the
+Tokyo subset with:
 
 ```bash
 python experiments/fetch_urbannav_subset.py --run Odaiba --output-dir data/urbannav/Tokyo
 ```
 
-`--allow-cpu-fallback` is CPU smoke-test only and is not the GPU benchmark path.
+`--allow-cpu-fallback` is for CPU smoke tests only.
 
 ### Browser/CPU reference
 
@@ -451,7 +341,7 @@ python3 -m pip install pytest pandas scipy requests matplotlib plotly
 
 ### Run the demo (no GPU, no data, ~1 second)
 
-Urban-canyon NLOS simulation solving each epoch with naive WLS vs. robust SPP:
+Naive WLS vs robust SPP on a simulated urban canyon:
 
 ```bash
 PYTHONPATH=python python3 examples/demo_urban_canyon_sim.py
@@ -465,9 +355,6 @@ robust SPP (Cauchy)             2.00 m      2.39 m
 --------------------------------------------------
 robust vs naive: 81% better P50, 77% better RMS
 ```
-
-Robust down-weighting of NLOS-biased measurements is the same idea the GPU
-particle-filter stack scales up to beat RTKLIB demo5 on real UrbanNav data.
 
 ### Use the robust SPP solver from Python
 
@@ -486,17 +373,16 @@ position_ecef = robust_spp(
 )
 ```
 
-Bad input shapes, non-finite values, negative weights, and invalid solver options
-raise `ValueError`. For a measurement-level NLOS simulator with ray-cast
-blockage, C/N0 attenuation, excess delay, and geometry-aware SPP comparison:
+Invalid shapes, non-finite values, negative weights or options raise
+`ValueError`. NLOS simulation and the PLATEAU mask replay suite:
 
 ```bash
 PYTHONPATH=python python3 examples/demo_nlos_simulation.py
 PYTHONPATH=python:. python3 experiments/run_plateau_nlos_demo_suite.py
 ```
 
-The suite exports the mask, replays SPP/PF/FGO, and writes combined
-JSON/Markdown/CSV summaries; the mask CSV contract is `tow,epoch_idx,prn,is_los`.
+The suite replays SPP/PF/FGO with the mask (`tow,epoch_idx,prn,is_los`) and
+writes JSON/Markdown/CSV summaries.
 
 | Replay consumer | Baseline RMS | Mask-soft RMS | RMS gain |
 |---|---:|---:|---:|
@@ -513,17 +399,14 @@ python3 python/gnss_gpu/cli.py build                  # build native kernels
 gnss-gpu doctor
 ```
 
-GPU demos in [`examples/`](examples/) import native modules and need a prior
-build. On CPU-only installs, native-only calls raise
-`gnss_gpu.NativeBackendUnavailableError`; broken extensions report their
-original import error. Use `build --dry-run` to inspect the build command.
+GPU demos need a prior build. On CPU-only installs, native calls raise
+`gnss_gpu.NativeBackendUnavailableError`; `build --dry-run` shows the build
+command.
 
 ## ROS 2 node
 
-For outdoor robots, [`ros2/gnss_gpu_ros`](ros2/gnss_gpu_ros/) packages the
-trajectory-filtering ideas validated on GSDC2023 as a ROS 2 node: it gates
-multipath/NLOS spikes in `sensor_msgs/NavSatFix` streams (Hampel + CV Kalman)
-before they reach your fusion stack, and publishes an RViz-friendly path.
+[`ros2/gnss_gpu_ros`](ros2/gnss_gpu_ros/) gates multipath/NLOS spikes in
+`sensor_msgs/NavSatFix` (Hampel + CV Kalman) and publishes an RViz path.
 
 ```bash
 ros2 run gnss_gpu_ros robust_navsat_filter --ros-args -r fix:=/your_gnss_driver/fix
@@ -571,23 +454,20 @@ flowchart LR
 
 ## A note on scope
 
-This is **not** a single polished application — it is intentionally experiment-first.
-Stable code lives in the library/native directories (`python/gnss_gpu/`, `src/`), while
-fast-moving runs, sweeps, generated reports, and Kaggle/PPC handoffs live in
-`experiments/` and `internal_docs/`. Many CSV/HTML files are generated or local-only;
-before trusting one, check that it is listed in
-[`experiments/results/README.md`](experiments/results/README.md) and that its build
-command is recorded in [`internal_docs/plan.md`](internal_docs/plan.md).
+Experiment-first: stable code lives in `python/gnss_gpu/` and `src/`; runs,
+sweeps and reports in `experiments/` and `internal_docs/`. Trust a generated
+CSV/HTML only if [`experiments/results/README.md`](experiments/results/README.md)
+lists it and [`internal_docs/plan.md`](internal_docs/plan.md) records its
+build command.
 
 ## Development policy
 
-- Keep stable reusable code in `python/gnss_gpu/` or `src/`; keep variant-heavy logic in
-  `experiments/` until it survives fixed evaluation.
-- Do not promote a method because it wins one pilot split. Prefer same-input,
-  same-metric comparisons over new abstractions.
+- Stable code goes in `python/gnss_gpu/` or `src/`; variant-heavy logic stays
+  in `experiments/` until it survives fixed evaluation.
+- Promote on same-input, same-metric comparisons, not one pilot split.
 - Record durable decisions in [`internal_docs/decisions.md`](internal_docs/decisions.md).
-- Do not vendor, link, or derive production code/config from GPL-3.0 reference sources
-  such as `gici-open`.
+- Never vendor, link or derive code/config from GPL-3.0 sources such as
+  `gici-open`.
 
 ## License
 
