@@ -4281,12 +4281,12 @@ class GtsamRtkTc(GtsamRtk):
                 # WP51 (PHASE1_STUCK_N > 0, set by --reverse): the Phase-1
                 # Point3 smoother can wedge on IncrementalFixedLagSmoother's
                 # "map::at" (a stale ambiguity key), after which no epoch
-                # commits again. Hand over to Phase 2 once 40+ epochs have
+                # commits again. Hand over to Phase 2 once 20+ epochs have
                 # committed and this many epochs in a row have not.
                 self._phase1_stuck = getattr(self, '_phase1_stuck', 0) + 1
                 n_stuck = int(os.environ.get('PHASE1_STUCK_N', '0'))
                 if (n_stuck > 0 and self._phase1_stuck >= n_stuck
-                        and len(self._phase1_hist) >= 40):
+                        and len(self._phase1_hist) >= 20):
                     self._transition_to_phase2(obs)
             return
         self._process_phase2(obs, obsb)
