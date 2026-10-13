@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP53** (negative result, record only): vetoing FIX entry
+  while an IMU detector says the vehicle is parked costs Nagoya 5–15 pp and
+  does not remove Nagoya 2's wrong basin, which is chosen during a stop but
+  labelled after the vehicle moves.
 - **RB-FGO-PF WP52** (`experiments/rbpf_fgo/`, negative result): optional
   `RBPF_CARRY_FB=1|2` holds the integer carry's set in the shared graph.
   Carry episodes last a median of 0.4 s, so it does not raise the

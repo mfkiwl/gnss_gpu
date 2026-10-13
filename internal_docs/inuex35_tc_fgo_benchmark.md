@@ -825,6 +825,27 @@ spread, except that the wrong share rose on Nagoya 2. The hard stretches
 end the carry within a second, which is exactly where anchoring would have
 been needed. Not pursued further.
 
+### WP53 (2026-10-13): no FIX entry while parked — negative result
+
+Nagoya 2's wrong basin (556831–556862 s) falls in a 45 s stop (reference
+speed 0 from 556807 to 556853 s). While parked, code multipath is a
+constant bias and the geometry barely changes, so a basin about 1 m off is
+indistinguishable. Test (label replay on the 18 WP48 row-dump runs): veto
+the hysteresis entry while a causal IMU detector says the vehicle is
+stationary (last 1 s: |acc| std < 0.05 m/s², median |gyro| < 0.01 rad/s).
+Against the reference speed it is 97–99% precise; it finds 90–94% of the
+parked epochs on Nagoya but only 13–32% on Tokyo, whose IMU vibrates more
+when parked. Parked epochs are 33–55% of every run.
+
+| 3 seeds, real time, correct FIX (worst wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP50 | 63.1% (0.05%) | 82.8% (0.03%) | 78.8% (0.00%) | 70.6% (0.00%) | 52.2% (0.20%) | 31.0% (0.12%) |
+| no entry while parked | 62.7% (0.05%) | 81.5% (0.03%) | 78.5% (0.00%) | 55.4% (0.00%) | 40.7% (0.26%) | 26.0% (0.00%) |
+
+Nagoya loses 5–15 pp, and Nagoya 2's wrong share does not fall: the wrong
+basin is chosen during the stop but labelled only after the vehicle starts
+moving. Not pursued.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
