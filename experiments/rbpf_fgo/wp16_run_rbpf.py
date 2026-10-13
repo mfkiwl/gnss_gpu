@@ -363,6 +363,10 @@ def main() -> int:
         import reverse_time as rtime
         os.environ['RBPF_REVERSE'] = '1'
         os.environ.setdefault('PHASE1_STUCK_N', '5')
+        if not any(kv.startswith('PHASE1_EPOCHS=') for kv in args.env):
+            # a 20 s GNSS-only bootstrap (forward: 40 s); runs mostly end
+            # parked, so the backward PF starts 20 s earlier
+            os.environ['PHASE1_EPOCHS'] = '100'
         rov_l, bas_l = rtime.read_all(dec), rtime.read_all(decb)
         (w0, tw0), (w1, tw1) = gn.time2gpst(rov_l[0].t), gn.time2gpst(rov_l[-1].t)
         if w0 != w1:
