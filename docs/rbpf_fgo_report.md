@@ -1,8 +1,8 @@
 # RB-FGO-PF technical report: integer-ambiguity particle filtering on a shared factor graph
 
-Status as of WP50 (2026-10-13). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
+Status as of WP51 (2026-10-13). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-048 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-049 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -12,7 +12,9 @@ particles carry only integer hypotheses ("basins"), so a wrong fix competes
 with the right one through accumulated likelihood instead of being locked in
 by a single ratio test. A label layer decides when to report FIX: a
 hysteresis rule on the particles' per-pair agreement, then an integer carry
-that keeps an accepted integer set while the carrier stays locked.
+that keeps an accepted integer set while the carrier stays locked. For
+post-processing, a second pass runs the same filter backward in time, and its
+fixes are added where the forward label confirms them.
 
 On the six PPC 2024 runs (Tokyo 1–3, Nagoya 1–3), three seeds each, with one
 scorer for every system:
@@ -22,15 +24,26 @@ scorer for every system:
 | inuex35 TC-FGO (starting point, local reproduction) | 46.7% (5.72%) | 59.7% (1.78%) | 58.2% (2.06%) | – | – | – |
 | libgnss++ GTSAM FGO | 37.7% (29.9%) | 77.3% (1.57%) | 68.2% (1.56%) | – | – | – |
 | libgnss++ KF-RTK (`ppc-demo`, low-cost preset) | 68.0% (8.76%) | 76.7% (1.80%) | 71.6% (3.01%) | 64.9% (14.8%) | 48.6% (2.15%) | 29.8% (29.4%) |
-| **RB-FGO-PF WP50, real time** | **61.8% (0.04%)** | **82.5% (0.02%)** | **77.9% (0.00%)** | **70.4% (0.00%)** | **51.1% (0.14%)** | **29.7% (0.04%)** |
-| **RB-FGO-PF WP50, 15 s fixed lag** | **65.3% (0.04%)** | **85.0% (0.02%)** | **81.1% (0.00%)** | **74.6% (0.00%)** | **54.2% (0.13%)** | **38.4% (0.03%)** |
+| **RB-FGO-PF WP50, real time** | **63.1% (0.05%)** | **82.8% (0.02%)** | **78.8% (0.00%)** | **70.6% (0.00%)** | **52.2% (0.13%)** | **31.0% (0.04%)** |
+| **RB-FGO-PF WP50, 15 s fixed lag** | **67.3% (0.05%)** | **85.7% (0.02%)** | **82.5% (0.00%)** | **75.3% (0.00%)** | **55.4% (0.13%)** | **41.6% (0.03%)** |
+| **RB-FGO-PF WP51, forward + backward (post-processed)** | **69.3% (0.10%)** | **87.1% (0.02%)** | **83.6% (0.02%)** | **79.9% (0.00%)** | **56.8% (0.23%)** | **55.8% (0.16%)** |
 
-Every seed of every run stays at or below 0.20% wrong (worst: Nagoya 2). The
-real-time output never uses future data. The fixed-lag output also carries
-integer sets backward from fixes up to 15 s later.
+Every seed of every run stays at or below 0.20% wrong in real time and with
+the 15 s lag, and at or below 0.35% with the backward pass (worst: Nagoya 2).
+The real-time output never uses future data. The fixed-lag output also
+carries integer sets backward from fixes up to 15 s later. The post-processed
+output uses the whole run.
+
+Scoring note: the WP50 numbers first published (real time 61.8 / 82.5 /
+77.9 / 70.4 / 51.1 / 29.7%, 15 s lag 65.3 / 85.0 / 81.1 / 74.6 / 54.2 /
+38.4%) also dropped carried epochs that failed the PF's output guard
+(reported position more than 5 m from the code-only position). The `.pos`
+output keeps them. This report scores the output as written
+(`score_label.py`); the wrong-FIX rates move by at most 0.01 pp, and WP48 and
+earlier are unaffected.
 
 <p align="center">
-  <img src="assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP50 (real time and 15 s fixed lag) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
+  <img src="assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP51 (forward and backward pass), WP50 (real time and 15 s fixed lag) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
 </p>
 
 ## Evaluation protocol
@@ -128,6 +141,39 @@ epoch came from a wrong source. The label layer does not feed back into the
 PF, so it can be replayed on a recorded run (`replay_carry.py`); the replay
 is bit-identical to the live run.
 
+### Backward pass (WP51)
+
+The filter only runs forward. For the post-processed output, the same
+configuration also runs on a time-mirrored copy of the run
+(`wp16_run_rbpf.py --reverse 1`, `reverse_time.py`):
+
+- epoch times become τ = t_first + t_last − t, so the last epoch comes first;
+- Doppler, satellite velocity and gyro rates are negated; specific force,
+  pseudorange and carrier phase are unchanged;
+- satellite orbits and clocks are evaluated at the true transmission time;
+- each LLI slip flag moves to the satellite's previous observation;
+- IMU samples get mirrored stamps.
+
+The vehicle then drives backward, so the bootstrap heading is turned by π.
+The GNSS-only bootstrap is 20 s instead of 40 s, and hands over to Phase 2
+early if its smoother wedges. Both switches are off in forward runs, which
+stay bit-identical (checked on Tokyo 2). On the last 300 s of Tokyo 2 the
+backward pass labels 98.1% correct FIX with no wrong fix (forward: 99.0%).
+
+`combine_fb.py` joins the two passes on the forward run's epochs:
+
+1. backward integer carry from the forward label, with no lag limit;
+2. a backward FIX segment is added where that label is FIX within 0.3 m of
+   it on at least 5 of its epochs and never further away; where the labels
+   disagree, the forward one wins;
+3. integer carry both ways from every FIX epoch.
+
+Backward fixes are never used unconfirmed. Both passes converge to Nagoya
+2's wrong basin, so agreement between them is no evidence there, and the
+backward label alone is less safe than the forward one (below). The
+threshold of 5 agreeing epochs is not critical: 1 and 10 give the same
+results within 0.2 pp.
+
 ## How the results moved
 
 | Release | Change | Correct FIX (3 seeds) | Worst wrong / FIX |
@@ -137,12 +183,25 @@ is bit-identical to the live run.
 | WP46 | label re-selected on Tokyo and Nagoya | 56.1 / 76.4 / 75.8 / 61.0 / 46.5 / 12.3% | Nagoya 3 6.2% |
 | WP47 | one-band satellites, residual-attribution fix | 56.9 / 78.0 / 76.1 / 65.4 / 46.3 / 26.3% | 0.99% |
 | WP48 | Doppler v2, Huber, C/N0 weighting | 56.4 / 78.7 / 74.8 / 66.5 / 47.8 / 27.4% | 0.62% |
-| WP50 | hysteresis label, integer carry | 61.8 / 82.5 / 77.9 / 70.4 / 51.1 / 29.7% | 0.20% |
-| WP50, 15 s lag | backward carry | 65.3 / 85.0 / 81.1 / 74.6 / 54.2 / 38.4% | 0.19% |
+| WP50 | hysteresis label, integer carry | 63.1 / 82.8 / 78.8 / 70.6 / 52.2 / 31.0% | 0.20% |
+| WP50, 15 s lag | backward carry | 67.3 / 85.7 / 82.5 / 75.3 / 55.4 / 41.6% | 0.19% |
+| WP51, post-processed | backward PF pass, anchored union, carry both ways | 69.3 / 87.1 / 83.6 / 79.9 / 56.8 / 55.8% | 0.35% |
+
+Over the 15 s lag output, WP51's gain splits into three parts:
+
+| Correct FIX, pp added | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| backward carry without the 15 s limit | 0.0 | 0.0 | 0.0 | 2.2 | 0.1 | 3.6 |
+| carry re-seeded from carried epochs | 1.1 | 0.4 | 0.6 | 1.3 | 0.5 | 1.7 |
+| backward PF pass | 0.9 | 1.0 | 0.5 | 1.1 | 0.8 | 8.9 |
+
+The backward pass matters most on Nagoya 3, where it fixes 42.9% of epochs on
+its own (forward: 31.0%).
 
 PPC OFFICIAL (position only): WP46 80.8 / 92.7 / 90.4 / 65.4 / 55.3 / 20.2%;
 WP50 84.3 / 93.8 / 91.8 / 74.5 / 56.1 / 78.8%; WP50 with the 15 s lag
-84.6 / 94.2 / 92.4 / 75.0 / 57.8 / 79.4%.
+84.6 / 94.2 / 92.4 / 75.0 / 57.8 / 79.4%; WP51 84.8 / 94.7 / 92.9 / 76.3 /
+58.8 / 81.5%.
 
 ## What did not work
 
@@ -167,6 +226,15 @@ benchmark record:
 - **Float-side tweaks alone.** Huber, C/N0 weighting and Doppler v2 cut the
   share of epochs with the float more than 1 m off, but each moved FIX by
   only ±1–2 pp on its own. Together they raised PPC OFFICIAL by 1–8 pp.
+- **Unconfirmed backward fixes (WP51).** Adding every backward fix that the
+  forward output does not contradict (and dropping both where it does)
+  reaches 1.7% wrong on Tokyo 3 and 1.1% on Nagoya 2.
+- **Two-filter agreement (WP51).** Reporting FIX wherever both passes' PFs
+  report their own fix within 3–10 cm of each other gains about 2 pp on
+  Tokyo 1 but reaches 4.5–4.8% wrong on Nagoya 2: both passes settle in the
+  same wrong basin.
+- **Averaging the two floats (WP51).** It lowers the share of epochs within
+  0.5 m on Tokyo 1, Tokyo 3 and Nagoya 1.
 
 ## Limits
 
@@ -175,30 +243,33 @@ benchmark record:
   rule and stay at or below 0.01% wrong held out. The Nagoya 2 fold picks a
   1-epoch entry and gets 2.6% wrong, because nothing in its training runs
   shows why the entry delay is needed. The 1 s entry is fixed by design.
-  No dataset outside PPC has been tested.
+  The backward pass is a further check: on time-reversed data the same label
+  marks 0.8–1.2% of its Nagoya 1 and 2 fixes wrong, and 5.3% on one Tokyo 3
+  seed. Expect held-out wrong rates above the in-sample 0.2%. No dataset
+  outside PPC has been tested.
 - **Long hard stretches.** Most remaining unfixed epochs sit in 1–7 minute
   stretches where the code-only position is 2–10 m off and carrier slips are
   frequent. Tokyo 1 has ~25% of its epochs in one such stretch, Nagoya 2
   ~35%, Nagoya 3 ~50%. The integer carry ends there because too few pairs
   stay consistent.
-- **Nagoya 2.** A self-consistent basin about 0.95 m off (556840–556862 s)
-  remains the main source of wrong fixes.
+- **Nagoya 2.** A self-consistent basin about 0.95 m off (556831–556862 s)
+  remains the main source of wrong fixes. The backward pass falls into it
+  too.
 - **Compute.** CPU only. The PF step takes 80–90 ms; full runs process 5–7.5
   epochs/s with three runs sharing a 4-core machine, against 5 Hz data. A
   GPU MLAMBDA path exists (`RBPF_CUDA=1`), but more particles did not raise
-  accuracy.
+  accuracy. The post-processed output runs the filter twice.
 - **Not tested.** 3D-map (PLATEAU) NLOS rejection: the building data was not
   reachable from the environment used.
 
 ## Next steps
 
-1. A backward-in-time PF pass combined with the forward one, for the
-   post-processed output. Unfixed epochs followed by a correct FIX within
-   15 s (no data gap) are an upper bound of +11 to +28 pp; the backward
-   integer carry recovers +2.5 to +8.7 pp of it.
-2. Feeding carried integers back into the shared graph, so that the float
+1. Feeding carried integers back into the shared graph, so that the float
    stays anchored where the PF's agreement dips.
-3. A held-out dataset for the label rule.
+2. A held-out dataset for the label rule. The backward pass suggests its
+   held-out wrong rate is nearer 1% than 0.2%.
+3. Breaking Nagoya 2's wrong basin, which neither time direction, wide-lane
+   nor more particles separate from the true one.
 
 ## Reproduction
 
@@ -211,8 +282,12 @@ PPC_DATA_ROOT=.../PPC-Dataset/tokyo bash run_ship.sh wp50_r1 1 0 --rb-seed 20260
 PPC_CITY=nagoya PPC_DATA_ROOT=.../PPC-Dataset/nagoya bash run_ship.sh wp50ng_r3 3 0 --rb-seed 20260710
 # 15 s fixed-lag output of the same run: run1_smooth.{npz,pos}
 python integer_smoother.py results/wp50_r1/run1.npz --max-s 15
+# WP51: backward pass of the same run, then the post-processed output (run1_fb.{npz,pos})
+PPC_DATA_ROOT=.../PPC-Dataset/tokyo bash run_ship.sh wp50bw_r1 1 0 --rb-seed 20260710 --reverse 1
+python combine_fb.py results/wp50_r1/run1.npz results/wp50bw_r1/run1.npz
 # FIX columns (correct FIX, wrong / FIX)
-python score_label.py --data-root .../PPC-Dataset results/wp50_r1/run1.npz results/wp50_r1/run1_smooth.npz
+python score_label.py --data-root .../PPC-Dataset results/wp50_r1/run1.npz \
+    results/wp50_r1/run1_smooth.npz results/wp50_r1/run1_fb.npz
 # PPC OFFICIAL (results/<prefix>_r{1,2,3})
 python score_runs.py --data-root .../PPC-Dataset wp50
 PPC_CITY=nagoya python score_runs.py --data-root .../PPC-Dataset wp50ng
