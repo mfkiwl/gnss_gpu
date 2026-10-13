@@ -120,7 +120,7 @@ Slips and outages remove the affected ambiguity from every particle.
 | Wrong FIX / FIX ↓ (worst seed) | 0.10% (0.15%) | 0.02% (0.03%) | 0.02% (0.02%) | 0.00% (0.00%) | 0.23% (0.35%) | 0.16% (0.23%) |
 | PPC OFFICIAL (position only), real time | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
 | PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
-| PPC OFFICIAL, post-processed (WP51) | 84.8% | 94.7% | 92.9% | 76.3% | 58.8% | 81.5% |
+| PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.0% | 95.6% | 93.0% | 79.5% | 64.2% | 90.9% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
 
 WP45 added the two-band satellite set and basin persistence, WP47 one-band
@@ -128,7 +128,10 @@ code-only satellites, WP48 Huber / C/N0 weighting and Doppler v2, WP50 the
 hysteresis label and integer carry. WP51 reruns the filter on the
 time-mirrored run and keeps the backward fixes the forward label confirms;
 both passes fall into Nagoya 2's wrong basin, so their agreement alone is
-never a FIX. FIX numbers score the `.pos` output as written (the WP50 numbers
+never a FIX. WP54 then reports, on unfixed epochs, whichever of the
+forward, backward or float positions best fits the carrier modulo whole
+cycles: PPC OFFICIAL averages 85.9% over the six runs (WP51: 81.5%), on
+par with the PPC2024 winner's 85.6%. FIX numbers score the `.pos` output as written (the WP50 numbers
 first published also dropped guard-failing carried epochs). No external RTK
 engine feeds the FIX label. `RBPF_SHIP=wp48` … `wp43` reproduce earlier releases;
 `PPC_CITY=nagoya` selects the Nagoya lever arm. Details:

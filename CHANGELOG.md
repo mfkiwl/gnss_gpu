@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP54** (`experiments/rbpf_fgo/combine_fb.py`): on epochs the
+  post-processed label leaves unfixed, report whichever of the forward,
+  backward, mean and float positions best fits the raw DD carrier modulo
+  whole cycles. PPC OFFICIAL (3 seeds) 92.0 / 95.6 / 93.0 / 79.5 / 64.2 /
+  90.9%, mean 85.9% (WP51: 81.5%), on par with the PPC2024 winner's 85.6%.
+  No training data; FIX labels unchanged.
 - **RB-FGO-PF WP53** (negative result, record only): vetoing FIX entry
   while an IMU detector says the vehicle is parked costs Nagoya 5–15 pp and
   does not remove Nagoya 2's wrong basin, which is chosen during a stop but
