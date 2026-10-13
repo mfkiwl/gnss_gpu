@@ -160,6 +160,16 @@ WP49 (2026-10-13) diagnostics, not shipped (D-047):
 | `--env RBPF_WL=1` | per-epoch wide-lane fix: DD WL integers from the float, LAMBDA ratio, WL carrier position (`rb_wl_n`, `rb_wl_ratio`, `rb_wl_rms`, `wl_xyz`) |
 | `--env RBPF_WLPF=1` | a second PF on the wide-lane problem (no feedback, main output unchanged): `wlpf_ok`, `wlpf_nb_at`, `wlpf_nb_at_ne`, `wlpf_ne_mass`, `wlpf_npairs`, `wlpf_xyz` |
 
+WP50 (2026-10-13) ships a hysteresis label and an integer carry on the WP48
+filter (`RBPF_SHIP=wp48` keeps WP48):
+
+| option | effect |
+|---|---|
+| `--fix-hyst L,G,t,F,t2,F2,M,B[,Q]` | FIX once `--fix-rule` held L consecutive epochs, then while this continuation rule holds, bridging G failed epochs. Shipped `5,2,2,6,2,6,0.1,5` |
+| `--carry 1` with `--env RBPF_CARRY=1` | forward integer carry (`integer_carry.IntegerCarry`): an unfixed epoch is labelled FIX at the carried-integer position while the last FIX's single-difference integers fit the raw DD carrier (8+ pairs, 0.15 cycle). npz columns `hyst_fix`, `carry_fwd` |
+| `integer_smoother.py runN.npz --max-s 15` | backward carry from later FIX epochs, a fixed-lag output (`runN_smooth.npz` / `.pos`, column `carry_bwd`); needs the row dump (`RBPF_DUMP_ROWS=1`, on in WP50) |
+| `replay_carry.py` | replays the WP50 label layer on a row-dump run (the PF does not see it, so the output equals `RBPF_SHIP=wp50`) |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;

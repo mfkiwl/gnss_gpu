@@ -19,7 +19,6 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-
 from integer_carry import backward_carry
 
 

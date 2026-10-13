@@ -2,9 +2,9 @@
 # Run the shipped RB-FGO-PF configuration (WP18 + output guards + the WP43
 # output layer + the WP45 satellite set, basin persistence and FIX label
 # rule, made stricter in WP46; WP47 one-band code-only satellites, 10 deg
-# mask and a re-selected rule; WP48 measurement model) on one PPC run
-# (PPC_CITY=tokyo | nagoya).
-# RBPF_SHIP=wp47 / wp46 / wp45 / wp43 reproduce the earlier releases;
+# mask and a re-selected rule; WP48 measurement model; WP50 hysteresis label
+# and integer carry) on one PPC run (PPC_CITY=tokyo | nagoya).
+# RBPF_SHIP=wp48 / wp47 / wp46 / wp45 / wp43 reproduce the earlier releases;
 # RBPF_SHIP=wp18 is equivalent to repro_tc_fgo/results/wp18/run_rbpf18.sh.
 #
 #   PPC_DATA_ROOT=.../PPC-Dataset-data/tokyo \
@@ -28,7 +28,7 @@ GUARDS="--env RBPF_FIX_VOTE_DD=6.0 --env RBPF_FIX_VOTE_DPR=3.5 --env RBPF_FB_COM
 # position and the dead-reckoned gap fill. RBPF_SHIP=wp18 reproduces the
 # WP18 output (FIX decisions are the same either way).
 WP43="--dr-fill 1 --env RBPF_TRACK=2 --env RBPF_TRACK_EMPTY=1 --env RBPF_TRACK_OUT=2"
-SHIP="${RBPF_SHIP:-wp48}"
+SHIP="${RBPF_SHIP:-wp50}"
 if [ "$SHIP" = "wp18" ]; then WP43=""; fi
 # WP45 (2026-10-12): every satellite with two usable bands (--nf 3 made
 # cssrlib's qcedit drop any satellite without L5), BeiDou B1I+B3I instead
@@ -47,6 +47,11 @@ if [ "$SHIP" = "wp18" ]; then WP43=""; fi
 # prior v2 (no BeiDou GEO, C/N0-weighted, solve covariance, lever-arm
 # term), Huber on DD-PR / DD-CP, C/N0 pseudorange variance; label re-selected
 # with every seed at or below 0.7% wrong (7th field: DDPR-quality veto).
+# WP50 (2026-10-13): the PF decides integer sets, carrier continuity carries
+# them. Hysteresis label (enter after the WP48 rule held 5 epochs, stay while
+# 6+ pairs agree above 0.90) and a forward integer carry through epochs the
+# label leaves unfixed. The row dump (runN_rows.npz) also feeds
+# integer_smoother.py, the 15 s fixed-lag backward carry.
 WP45=""
 if [ "$SHIP" = "wp45" ]; then
   WP45="--nf 2 --band-priority C:2,6;R:- --env RBPF_KEEP=1 --fix-rule 3,5,3,12,0.1,5"

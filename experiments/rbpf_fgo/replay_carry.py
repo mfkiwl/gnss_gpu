@@ -16,7 +16,6 @@ import argparse
 from pathlib import Path
 
 import numpy as np
-
 from fix_rule_loro import apply, prepare
 from integer_carry import HysteresisLabel, IntegerCarry, backward_carry
 from integer_smoother import load_rows

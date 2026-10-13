@@ -64,9 +64,10 @@ The milestone-2 estimator treats integer ambiguities as persistent discrete
 **basins** and Rao-Blackwellizes the continuous fixed-lag GNSS/IMU graph. All
 systems below are scored by the same script on the six PPC runs (Tokyo and
 Nagoya). A FIX is correct when its 3D error is under 0.5 m, and the
-denominator is every rover epoch. The shipped WP48 configuration holds the
-wrong-FIX share at or below 0.7% of its fixes on all six runs, for every
-seed (worst seed 0.62%, Nagoya 2).
+denominator is every rover epoch. The shipped WP50 configuration holds the
+wrong-FIX share at or below 0.20% of its fixes on all six runs, for every
+seed. Its real-time output uses no future data. A 15 s fixed-lag smoother
+(`integer_smoother.py`) adds 2.5–8.7 pp more.
 
 | Correct FIX (wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
@@ -77,10 +78,12 @@ seed (worst seed 0.62%, Nagoya 2).
 | RB-FGO-PF WP45, Tokyo-selected label (3 seeds) | 66.6% (0.56%) | 83.9% (0.09%) | 84.3% (0.04%) | 69.3% (0.70%) | 53.4% (8.53%) | 18.5% (16.2%) |
 | RB-FGO-PF WP46 (3 seeds) | 56.1% (0.02%) | 76.4% (0.02%) | 75.8% (0.00%) | 61.0% (0.03%) | 46.5% (0.21%) | 12.3% (6.15%) |
 | RB-FGO-PF WP47 (3 seeds) | 56.9% (0.01%) | 78.0% (0.01%) | 76.1% (0.04%) | 65.4% (0.01%) | 46.3% (0.71%) | 26.3% (0.49%) |
-| **RB-FGO-PF WP48 (3 seeds)** | **56.4% (0.01%)** | **78.7% (0.01%)** | **74.8% (0.03%)** | **66.5% (0.06%)** | **47.8% (0.54%)** | **27.4% (0.07%)** |
+| RB-FGO-PF WP48 (3 seeds) | 56.4% (0.01%) | 78.7% (0.01%) | 74.8% (0.03%) | 66.5% (0.06%) | 47.8% (0.54%) | 27.4% (0.07%) |
+| **RB-FGO-PF WP50, real time (3 seeds)** | **61.8% (0.04%)** | **82.5% (0.02%)** | **77.9% (0.00%)** | **70.4% (0.00%)** | **51.1% (0.14%)** | **29.7% (0.04%)** |
+| **RB-FGO-PF WP50, 15 s fixed lag (3 seeds)** | **65.3% (0.04%)** | **85.0% (0.02%)** | **81.1% (0.00%)** | **74.6% (0.00%)** | **54.2% (0.13%)** | **38.4% (0.03%)** |
 
 <p align="center">
-  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP48, WP47 and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
+  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP50 (real time and 15 s fixed lag) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
 </p>
 
 WP45 selected its FIX label on Tokyo alone. On Nagoya 2 and 3 that label
@@ -120,9 +123,11 @@ flowchart TD
     Moves --> Track["Each lineage's position belief:<br/>IMU-predicted, updated with its own integers"]
     Res -. next epoch .-> PF
     Res --> Agree["Per-pair agreement mass of the MAP basin<br/>(all particles, and the non-empty ones)"]
-    Agree --> Dec{"at least 15 pairs above 0.99, among all particles<br/>or among the non-empty basins (mass 0.1+),<br/>or the shared graph's own LAMBDA fix with 5+;<br/>DD-PR quality at most 1.0 and the guards agree?"}
+    Agree --> Dec{"enter: 15+ pairs above 0.99 (or the graph's LAMBDA fix)<br/>for 5 epochs, DD-PR quality at most 1.0;<br/>stay: 6+ pairs above 0.90;<br/>and the float / DD-PR / fix guards agree?"}
     Dec -- yes --> Fix["Report FIX"]
-    Dec -- no --> Flt["Report FLOAT"]
+    Dec -- no --> Carry{"Last FIX's integer set still fits<br/>the DD carrier (8+ pairs, 0.15 cycle)?"}
+    Carry -- yes --> CFix["Report FIX at the carried-integer position"]
+    Carry -- no --> Flt["Report FLOAT"]
     Track --> Pos["Reported position: MAP basin's tracked belief<br/>(IMU dead reckoning on abandoned epochs)"]
     Fix --> Pos
     Flt --> Pos
@@ -135,13 +140,15 @@ from every particle in the same epoch. The design rationale is in
 [RB-FGO-PF design](internal_docs/rbpf_fgo_design.md), and the code is in
 [`experiments/rbpf_fgo/`](experiments/rbpf_fgo/README.md).
 
-| Shipped RB-FGO-PF (WP48) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+| Shipped RB-FGO-PF (WP50) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
-| Correct FIX / rover epochs | 56.4% | 78.7% | 74.8% | 66.5% | 47.8% | 27.4% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.01% (0.01%) | 0.01% (0.01%) | 0.03% (0.03%) | 0.06% (0.10%) | 0.54% (0.62%) | 0.07% (0.21%) |
-| PPC OFFICIAL (position only, label-independent) | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| Correct FIX / rover epochs, real time | 61.8% | 82.5% | 77.9% | 70.4% | 51.1% | 29.7% |
+| Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.04%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.14% (0.20%) | 0.04% (0.13%) |
+| Correct FIX, 15 s fixed lag | 65.3% | 85.0% | 81.1% | 74.6% | 54.2% | 38.4% |
+| Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.05%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.13% (0.19%) | 0.03% (0.10%) |
+| PPC OFFICIAL (position only), real time | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
-| PPC OFFICIAL, WP46 | 80.8% | 92.7% | 90.4% | 65.4% | 55.3% | 20.2% |
 
 WP45 (2026-10-12) runs one configuration on all runs. It makes three
 changes:
@@ -172,7 +179,20 @@ C/N0 term in the pseudorange variance, and a new Doppler velocity prior
 C/N0-weighted, with the lever-arm rotation term and the solve's own
 covariance). PPC OFFICIAL rises 2–8 pp on every run. The label is
 re-selected with every seed at or below 0.7% wrong. `RBPF_SHIP=wp47`,
-`wp46`, `wp45` and `wp43` reproduce the previous releases. `PPC_CITY=nagoya` selects the
+`wp46`, `wp45` and `wp43` reproduce the previous releases.
+
+WP50 (2026-10-13) changes how the label uses time. A wrong basin is the true
+trajectory shifted by a fixed offset, so carrier phase cannot reveal it while
+the geometry is static, and the code is biased the same way. Wrong fixes
+come in short flickers, though, and a correct integer set stays valid for as
+long as the carrier stays locked. The label now enters FIX only after the
+WP48 rule has held for 5 epochs (1 s), and stays FIX while 6+ pairs agree
+above 0.90. When the label drops, the last FIX's single-difference integers
+are carried forward while the raw DD carrier keeps fitting them (8+ pairs,
+0.15 cycle; slipped satellites leave the set, clean new ones join), and the
+epoch is reported FIX at the carried-integer position. `integer_smoother.py`
+runs the same carry backward from later fixes, a 15 s fixed-lag output.
+`RBPF_SHIP=wp48` reproduces WP48. `PPC_CITY=nagoya` selects the
 Nagoya antenna lever arm. An external RTK engine is
 used only for diagnosis, never for the FIX label. The design rationale is in
 the [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) and

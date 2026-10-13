@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="550" viewBox="0 0 960 550" role="img" aria-labelledby="title desc">
   <title id="title">RB-FGO-PF Tokyo PPC FIX benchmark</title>
-  <desc id="desc">Grouped bars compare correct FIX epochs as a share of rover epochs on the six Tokyo and Nagoya PPC runs for RB-FGO-PF WP48, RB-FGO-PF WP47 and libgnss++ KF-RTK; a second panel shows the share of each system's FIX epochs that are wrong.</desc>
+  <desc id="desc">Grouped bars compare correct FIX epochs as a share of rover epochs on the six Tokyo and Nagoya PPC runs for RB-FGO-PF WP50 (real time and with a 15 s fixed-lag smoother) and libgnss++ KF-RTK; a second panel shows the share of each system's FIX epochs that are wrong.</desc>
   <rect width="960" height="550" rx="16" fill="#0d1117"/>
   <text x="48" y="48" fill="#f0f6fc" font-family="system-ui,sans-serif" font-size="25" font-weight="700">Tokyo and Nagoya PPC: correct FIX at a wrong-FIX budget</text>
   <text x="48" y="76" fill="#8b949e" font-family="system-ui,sans-serif" font-size="14">One scorer for every system · a FIX is wrong when its 3D error is ≥ 0.5 m · RB-FGO-PF: mean of 3 seeds</text>
@@ -16,96 +16,96 @@
     <text x="54" y="209.0" fill="#8b949e" font-size="12" text-anchor="end">75</text>
     <line x1="62" y1="140.0" x2="600" y2="140.0" stroke="#21262d"/>
     <text x="54" y="144.0" fill="#8b949e" font-size="12" text-anchor="end">100</text>
-    <path d="M65.8,400 V257.4 Q65.8,253.4 69.8,253.4 H87.8 Q91.8,253.4 91.8,257.4 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 1: 56.4% correct FIX, 0.01% of FIX wrong</title></path>
-    <text x="78.8" y="247.4" fill="#c9d1d9" font-size="10.5" text-anchor="middle">56</text>
-    <path d="M93.8,400 V227.2 Q93.8,223.2 97.8,223.2 H115.8 Q119.8,223.2 119.8,227.2 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 1: 68.0% correct FIX, 8.76% of FIX wrong</title></path>
-    <text x="106.8" y="217.2" fill="#c9d1d9" font-size="10.5" text-anchor="middle">68</text>
-    <path d="M121.8,400 V256.1 Q121.8,252.1 125.8,252.1 H143.8 Q147.8,252.1 147.8,256.1 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 1: 56.9% correct FIX, 0.01% of FIX wrong</title></path>
-    <text x="134.8" y="246.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">57</text>
+    <path d="M65.8,400 V234.2 Q65.8,230.2 69.8,230.2 H87.8 Q91.8,230.2 91.8,234.2 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 1: 65.3% correct FIX, 0.04% of FIX wrong</title></path>
+    <text x="78.8" y="224.2" fill="#c9d1d9" font-size="10.5" text-anchor="middle">65</text>
+    <path d="M93.8,400 V243.3 Q93.8,239.3 97.8,239.3 H115.8 Q119.8,239.3 119.8,243.3 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 1: 61.8% correct FIX, 0.04% of FIX wrong</title></path>
+    <text x="106.8" y="233.3" fill="#c9d1d9" font-size="10.5" text-anchor="middle">62</text>
+    <path d="M121.8,400 V227.2 Q121.8,223.2 125.8,223.2 H143.8 Q147.8,223.2 147.8,227.2 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 1: 68.0% correct FIX, 8.76% of FIX wrong</title></path>
+    <text x="134.8" y="217.2" fill="#c9d1d9" font-size="10.5" text-anchor="middle">68</text>
     <text x="106.8" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Tokyo 1</text>
-    <path d="M155.5,400 V199.4 Q155.5,195.4 159.5,195.4 H177.5 Q181.5,195.4 181.5,199.4 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 2: 78.7% correct FIX, 0.01% of FIX wrong</title></path>
-    <text x="168.5" y="189.4" fill="#c9d1d9" font-size="10.5" text-anchor="middle">79</text>
-    <path d="M183.5,400 V204.6 Q183.5,200.6 187.5,200.6 H205.5 Q209.5,200.6 209.5,204.6 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 2: 76.7% correct FIX, 1.80% of FIX wrong</title></path>
-    <text x="196.5" y="194.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">77</text>
-    <path d="M211.5,400 V201.2 Q211.5,197.2 215.5,197.2 H233.5 Q237.5,197.2 237.5,201.2 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 2: 78.0% correct FIX, 0.01% of FIX wrong</title></path>
-    <text x="224.5" y="191.2" fill="#c9d1d9" font-size="10.5" text-anchor="middle">78</text>
+    <path d="M155.5,400 V183.0 Q155.5,179.0 159.5,179.0 H177.5 Q181.5,179.0 181.5,183.0 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 2: 85.0% correct FIX, 0.02% of FIX wrong</title></path>
+    <text x="168.5" y="173.0" fill="#c9d1d9" font-size="10.5" text-anchor="middle">85</text>
+    <path d="M183.5,400 V189.5 Q183.5,185.5 187.5,185.5 H205.5 Q209.5,185.5 209.5,189.5 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 2: 82.5% correct FIX, 0.02% of FIX wrong</title></path>
+    <text x="196.5" y="179.5" fill="#c9d1d9" font-size="10.5" text-anchor="middle">82</text>
+    <path d="M211.5,400 V204.6 Q211.5,200.6 215.5,200.6 H233.5 Q237.5,200.6 237.5,204.6 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 2: 76.7% correct FIX, 1.80% of FIX wrong</title></path>
+    <text x="224.5" y="194.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">77</text>
     <text x="196.5" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Tokyo 2</text>
-    <path d="M245.2,400 V209.5 Q245.2,205.5 249.2,205.5 H267.2 Q271.2,205.5 271.2,209.5 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 3: 74.8% correct FIX, 0.03% of FIX wrong</title></path>
-    <text x="258.2" y="199.5" fill="#c9d1d9" font-size="10.5" text-anchor="middle">75</text>
-    <path d="M273.2,400 V217.8 Q273.2,213.8 277.2,213.8 H295.2 Q299.2,213.8 299.2,217.8 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 3: 71.6% correct FIX, 3.01% of FIX wrong</title></path>
-    <text x="286.2" y="207.8" fill="#c9d1d9" font-size="10.5" text-anchor="middle">72</text>
-    <path d="M301.2,400 V206.1 Q301.2,202.1 305.2,202.1 H323.2 Q327.2,202.1 327.2,206.1 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 3: 76.1% correct FIX, 0.04% of FIX wrong</title></path>
-    <text x="314.2" y="196.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">76</text>
+    <path d="M245.2,400 V193.1 Q245.2,189.1 249.2,189.1 H267.2 Q271.2,189.1 271.2,193.1 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 3: 81.1% correct FIX, 0.00% of FIX wrong</title></path>
+    <text x="258.2" y="183.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">81</text>
+    <path d="M273.2,400 V201.5 Q273.2,197.5 277.2,197.5 H295.2 Q299.2,197.5 299.2,201.5 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 3: 77.9% correct FIX, 0.00% of FIX wrong</title></path>
+    <text x="286.2" y="191.5" fill="#c9d1d9" font-size="10.5" text-anchor="middle">78</text>
+    <path d="M301.2,400 V217.8 Q301.2,213.8 305.2,213.8 H323.2 Q327.2,213.8 327.2,217.8 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 3: 71.6% correct FIX, 3.01% of FIX wrong</title></path>
+    <text x="314.2" y="207.8" fill="#c9d1d9" font-size="10.5" text-anchor="middle">72</text>
     <text x="286.2" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Tokyo 3</text>
-    <path d="M334.8,400 V231.1 Q334.8,227.1 338.8,227.1 H356.8 Q360.8,227.1 360.8,231.1 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 1: 66.5% correct FIX, 0.06% of FIX wrong</title></path>
-    <text x="347.8" y="221.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">66</text>
-    <path d="M362.8,400 V235.3 Q362.8,231.3 366.8,231.3 H384.8 Q388.8,231.3 388.8,235.3 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 1: 64.9% correct FIX, 14.80% of FIX wrong</title></path>
-    <text x="375.8" y="225.3" fill="#c9d1d9" font-size="10.5" text-anchor="middle">65</text>
-    <path d="M390.8,400 V234.0 Q390.8,230.0 394.8,230.0 H412.8 Q416.8,230.0 416.8,234.0 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 1: 65.4% correct FIX, 0.01% of FIX wrong</title></path>
-    <text x="403.8" y="224.0" fill="#c9d1d9" font-size="10.5" text-anchor="middle">65</text>
+    <path d="M334.8,400 V210.0 Q334.8,206.0 338.8,206.0 H356.8 Q360.8,206.0 360.8,210.0 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 1: 74.6% correct FIX, 0.00% of FIX wrong</title></path>
+    <text x="347.8" y="200.0" fill="#c9d1d9" font-size="10.5" text-anchor="middle">75</text>
+    <path d="M362.8,400 V221.0 Q362.8,217.0 366.8,217.0 H384.8 Q388.8,217.0 388.8,221.0 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 1: 70.4% correct FIX, 0.00% of FIX wrong</title></path>
+    <text x="375.8" y="211.0" fill="#c9d1d9" font-size="10.5" text-anchor="middle">70</text>
+    <path d="M390.8,400 V235.3 Q390.8,231.3 394.8,231.3 H412.8 Q416.8,231.3 416.8,235.3 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 1: 64.9% correct FIX, 14.80% of FIX wrong</title></path>
+    <text x="403.8" y="225.3" fill="#c9d1d9" font-size="10.5" text-anchor="middle">65</text>
     <text x="375.8" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Nagoya 1</text>
-    <path d="M424.5,400 V279.7 Q424.5,275.7 428.5,275.7 H446.5 Q450.5,275.7 450.5,279.7 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 2: 47.8% correct FIX, 0.54% of FIX wrong</title></path>
-    <text x="437.5" y="269.7" fill="#c9d1d9" font-size="10.5" text-anchor="middle">48</text>
-    <path d="M452.5,400 V277.6 Q452.5,273.6 456.5,273.6 H474.5 Q478.5,273.6 478.5,277.6 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 2: 48.6% correct FIX, 2.15% of FIX wrong</title></path>
-    <text x="465.5" y="267.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">49</text>
-    <path d="M480.5,400 V283.6 Q480.5,279.6 484.5,279.6 H502.5 Q506.5,279.6 506.5,283.6 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 2: 46.3% correct FIX, 0.71% of FIX wrong</title></path>
-    <text x="493.5" y="273.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">46</text>
+    <path d="M424.5,400 V263.1 Q424.5,259.1 428.5,259.1 H446.5 Q450.5,259.1 450.5,263.1 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 2: 54.2% correct FIX, 0.13% of FIX wrong</title></path>
+    <text x="437.5" y="253.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">54</text>
+    <path d="M452.5,400 V271.1 Q452.5,267.1 456.5,267.1 H474.5 Q478.5,267.1 478.5,271.1 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 2: 51.1% correct FIX, 0.14% of FIX wrong</title></path>
+    <text x="465.5" y="261.1" fill="#c9d1d9" font-size="10.5" text-anchor="middle">51</text>
+    <path d="M480.5,400 V277.6 Q480.5,273.6 484.5,273.6 H502.5 Q506.5,273.6 506.5,277.6 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 2: 48.6% correct FIX, 2.15% of FIX wrong</title></path>
+    <text x="493.5" y="267.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">49</text>
     <text x="465.5" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Nagoya 2</text>
-    <path d="M514.2,400 V332.8 Q514.2,328.8 518.2,328.8 H536.2 Q540.2,328.8 540.2,332.8 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 3: 27.4% correct FIX, 0.07% of FIX wrong</title></path>
-    <text x="527.2" y="322.8" fill="#c9d1d9" font-size="10.5" text-anchor="middle">27</text>
-    <path d="M542.2,400 V326.5 Q542.2,322.5 546.2,322.5 H564.2 Q568.2,322.5 568.2,326.5 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 3: 29.8% correct FIX, 29.40% of FIX wrong</title></path>
-    <text x="555.2" y="316.5" fill="#c9d1d9" font-size="10.5" text-anchor="middle">30</text>
-    <path d="M570.2,400 V335.6 Q570.2,331.6 574.2,331.6 H592.2 Q596.2,331.6 596.2,335.6 V400 Z" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 3: 26.3% correct FIX, 0.49% of FIX wrong</title></path>
-    <text x="583.2" y="325.6" fill="#c9d1d9" font-size="10.5" text-anchor="middle">26</text>
+    <path d="M514.2,400 V304.2 Q514.2,300.2 518.2,300.2 H536.2 Q540.2,300.2 540.2,304.2 V400 Z" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 3: 38.4% correct FIX, 0.03% of FIX wrong</title></path>
+    <text x="527.2" y="294.2" fill="#c9d1d9" font-size="10.5" text-anchor="middle">38</text>
+    <path d="M542.2,400 V326.8 Q542.2,322.8 546.2,322.8 H564.2 Q568.2,322.8 568.2,326.8 V400 Z" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 3: 29.7% correct FIX, 0.04% of FIX wrong</title></path>
+    <text x="555.2" y="316.8" fill="#c9d1d9" font-size="10.5" text-anchor="middle">30</text>
+    <path d="M570.2,400 V326.5 Q570.2,322.5 574.2,322.5 H592.2 Q596.2,322.5 596.2,326.5 V400 Z" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 3: 29.8% correct FIX, 29.40% of FIX wrong</title></path>
+    <text x="583.2" y="316.5" fill="#c9d1d9" font-size="10.5" text-anchor="middle">30</text>
     <text x="555.2" y="424" fill="#c9d1d9" font-size="13" text-anchor="middle">Nagoya 3</text>
     <line x1="626" y1="104" x2="626" y2="510" stroke="#30363d"/>
     <text x="650" y="118" fill="#f0f6fc" font-size="17" font-weight="600">Wrong FIX (% of FIX) ↓</text>
     <text x="650" y="138" fill="#8b949e" font-size="12">3D error ≥ 0.5 m · axis capped at 10%</text>
     <text x="650" y="170" fill="#8b949e" font-size="12">Tokyo 1</text>
-    <rect x="650" y="176" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 1: 0.01% of FIX wrong</title></rect>
-    <text x="657.5" y="184" fill="#c9d1d9" font-size="11">0.01</text>
-    <rect x="650" y="187" width="201.5" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 1: 8.76% of FIX wrong</title></rect>
-    <text x="857.5" y="195" fill="#c9d1d9" font-size="11">8.8</text>
-    <rect x="650" y="198" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 1: 0.01% of FIX wrong</title></rect>
-    <text x="657.5" y="206" fill="#c9d1d9" font-size="11">0.01</text>
+    <rect x="650" y="176" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 1: 0.04% of FIX wrong</title></rect>
+    <text x="657.5" y="184" fill="#c9d1d9" font-size="11">0.04</text>
+    <rect x="650" y="187" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 1: 0.04% of FIX wrong</title></rect>
+    <text x="657.5" y="195" fill="#c9d1d9" font-size="11">0.04</text>
+    <rect x="650" y="198" width="201.5" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 1: 8.76% of FIX wrong</title></rect>
+    <text x="857.5" y="206" fill="#c9d1d9" font-size="11">8.8</text>
     <text x="650" y="227" fill="#8b949e" font-size="12">Tokyo 2</text>
-    <rect x="650" y="233" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 2: 0.01% of FIX wrong</title></rect>
-    <text x="657.5" y="241" fill="#c9d1d9" font-size="11">0.01</text>
-    <rect x="650" y="244" width="41.4" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 2: 1.80% of FIX wrong</title></rect>
-    <text x="697.4" y="252" fill="#c9d1d9" font-size="11">1.8</text>
-    <rect x="650" y="255" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 2: 0.01% of FIX wrong</title></rect>
-    <text x="657.5" y="263" fill="#c9d1d9" font-size="11">0.01</text>
+    <rect x="650" y="233" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 2: 0.02% of FIX wrong</title></rect>
+    <text x="657.5" y="241" fill="#c9d1d9" font-size="11">0.02</text>
+    <rect x="650" y="244" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 2: 0.02% of FIX wrong</title></rect>
+    <text x="657.5" y="252" fill="#c9d1d9" font-size="11">0.02</text>
+    <rect x="650" y="255" width="41.4" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 2: 1.80% of FIX wrong</title></rect>
+    <text x="697.4" y="263" fill="#c9d1d9" font-size="11">1.8</text>
     <text x="650" y="284" fill="#8b949e" font-size="12">Tokyo 3</text>
-    <rect x="650" y="290" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Tokyo 3: 0.03% of FIX wrong</title></rect>
-    <text x="657.5" y="298" fill="#c9d1d9" font-size="11">0.03</text>
-    <rect x="650" y="301" width="69.2" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 3: 3.01% of FIX wrong</title></rect>
-    <text x="725.2" y="309" fill="#c9d1d9" font-size="11">3.0</text>
-    <rect x="650" y="312" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Tokyo 3: 0.04% of FIX wrong</title></rect>
-    <text x="657.5" y="320" fill="#c9d1d9" font-size="11">0.04</text>
+    <rect x="650" y="290" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Tokyo 3: 0.00% of FIX wrong</title></rect>
+    <text x="657.5" y="298" fill="#c9d1d9" font-size="11">0.00</text>
+    <rect x="650" y="301" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Tokyo 3: 0.00% of FIX wrong</title></rect>
+    <text x="657.5" y="309" fill="#c9d1d9" font-size="11">0.00</text>
+    <rect x="650" y="312" width="69.2" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Tokyo 3: 3.01% of FIX wrong</title></rect>
+    <text x="725.2" y="320" fill="#c9d1d9" font-size="11">3.0</text>
     <text x="650" y="341" fill="#8b949e" font-size="12">Nagoya 1</text>
-    <rect x="650" y="347" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 1: 0.06% of FIX wrong</title></rect>
-    <text x="657.5" y="355" fill="#c9d1d9" font-size="11">0.06</text>
-    <rect x="650" y="358" width="230.0" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 1: 14.80% of FIX wrong</title></rect>
-    <text x="886.0" y="366" fill="#c9d1d9" font-size="11">14.8+</text>
-    <rect x="650" y="369" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 1: 0.01% of FIX wrong</title></rect>
-    <text x="657.5" y="377" fill="#c9d1d9" font-size="11">0.01</text>
+    <rect x="650" y="347" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 1: 0.00% of FIX wrong</title></rect>
+    <text x="657.5" y="355" fill="#c9d1d9" font-size="11">0.00</text>
+    <rect x="650" y="358" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 1: 0.00% of FIX wrong</title></rect>
+    <text x="657.5" y="366" fill="#c9d1d9" font-size="11">0.00</text>
+    <rect x="650" y="369" width="230.0" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 1: 14.80% of FIX wrong</title></rect>
+    <text x="886.0" y="377" fill="#c9d1d9" font-size="11">14.8+</text>
     <text x="650" y="398" fill="#8b949e" font-size="12">Nagoya 2</text>
-    <rect x="650" y="404" width="12.4" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 2: 0.54% of FIX wrong</title></rect>
-    <text x="668.4" y="412" fill="#c9d1d9" font-size="11">0.54</text>
-    <rect x="650" y="415" width="49.5" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 2: 2.15% of FIX wrong</title></rect>
-    <text x="705.5" y="423" fill="#c9d1d9" font-size="11">2.1</text>
-    <rect x="650" y="426" width="16.3" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 2: 0.71% of FIX wrong</title></rect>
-    <text x="672.3" y="434" fill="#c9d1d9" font-size="11">0.71</text>
+    <rect x="650" y="404" width="3.0" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 2: 0.13% of FIX wrong</title></rect>
+    <text x="659.0" y="412" fill="#c9d1d9" font-size="11">0.13</text>
+    <rect x="650" y="415" width="3.2" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 2: 0.14% of FIX wrong</title></rect>
+    <text x="659.2" y="423" fill="#c9d1d9" font-size="11">0.14</text>
+    <rect x="650" y="426" width="49.5" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 2: 2.15% of FIX wrong</title></rect>
+    <text x="705.5" y="434" fill="#c9d1d9" font-size="11">2.1</text>
     <text x="650" y="455" fill="#8b949e" font-size="12">Nagoya 3</text>
-    <rect x="650" y="461" width="1.6" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP48 Nagoya 3: 0.07% of FIX wrong</title></rect>
-    <text x="657.6" y="469" fill="#c9d1d9" font-size="11">0.07</text>
-    <rect x="650" y="472" width="230.0" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 3: 29.40% of FIX wrong</title></rect>
-    <text x="886.0" y="480" fill="#c9d1d9" font-size="11">29.4+</text>
-    <rect x="650" y="483" width="11.3" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP47 Nagoya 3: 0.49% of FIX wrong</title></rect>
-    <text x="667.3" y="491" fill="#c9d1d9" font-size="11">0.49</text>
-    <rect x="62" y="450" width="14" height="14" rx="2" fill="#3987e5"/><text x="83" y="462" fill="#c9d1d9" font-size="12">RB-FGO-PF WP48</text>
-    <rect x="203.0" y="450" width="14" height="14" rx="2" fill="#d95926"/><text x="224.0" y="462" fill="#c9d1d9" font-size="12">libgnss++ KF-RTK</text>
-    <rect x="62" y="472" width="14" height="14" rx="2" fill="#199e70"/><text x="83" y="484" fill="#c9d1d9" font-size="12">RB-FGO-PF WP47</text>
-    <text x="48" y="534" fill="#8b949e" font-size="11.5">WP48 improves the shared graph's measurement model (Huber, C/N0, Doppler) and keeps every seed at or below 0.7% wrong. libgnss++ KF-RTK: ppc-demo low-cost preset.</text>
+    <rect x="650" y="461" width="1.5" height="9" rx="3" fill="#3987e5"><title>RB-FGO-PF WP50, 15 s fixed lag Nagoya 3: 0.03% of FIX wrong</title></rect>
+    <text x="657.5" y="469" fill="#c9d1d9" font-size="11">0.03</text>
+    <rect x="650" y="472" width="1.5" height="9" rx="3" fill="#199e70"><title>RB-FGO-PF WP50, real time Nagoya 3: 0.04% of FIX wrong</title></rect>
+    <text x="657.5" y="480" fill="#c9d1d9" font-size="11">0.04</text>
+    <rect x="650" y="483" width="230.0" height="9" rx="3" fill="#d95926"><title>libgnss++ KF-RTK Nagoya 3: 29.40% of FIX wrong</title></rect>
+    <text x="886.0" y="491" fill="#c9d1d9" font-size="11">29.4+</text>
+    <rect x="62" y="450" width="14" height="14" rx="2" fill="#3987e5"/><text x="83" y="462" fill="#c9d1d9" font-size="12">RB-FGO-PF WP50, 15 s fixed lag</text>
+    <rect x="315.0" y="450" width="14" height="14" rx="2" fill="#199e70"/><text x="336.0" y="462" fill="#c9d1d9" font-size="12">RB-FGO-PF WP50, real time</text>
+    <rect x="62" y="472" width="14" height="14" rx="2" fill="#d95926"/><text x="83" y="484" fill="#c9d1d9" font-size="12">libgnss++ KF-RTK</text>
+    <text x="48" y="534" fill="#8b949e" font-size="11.5">WP50: hysteresis label and integer carry on the WP48 filter; the 15 s fixed-lag output also carries integers backward. libgnss++ KF-RTK: ppc-demo low-cost preset.</text>
   </g>
 </svg>
