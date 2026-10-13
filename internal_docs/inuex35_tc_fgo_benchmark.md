@@ -733,6 +733,76 @@ Tokyo 1 (seed 20260710) is bit-identical to `replay_carry.py` on the
 row-dump run, and the 3-seed table is that replay on the row-dump runs of
 seeds 20260710–12.
 
+### WP51 (2026-10-13): backward PF pass for the post-processed output
+
+**Scoring correction for WP50.** The WP50 table above was scored with
+`fix_rule_loro.prepare`, which also drops FIX epochs that fail the PF's
+output guard (reported position more than 5 m from the code-only DDPR
+position) and dead-reckoned epochs. The live label applies the guard to
+PF-labelled epochs only; carried epochs keep FIX in the `.pos` output.
+Scored as written (`score_label.py`), WP50 gives real time 63.1 / 82.8 /
+78.8 / 70.6 / 52.2 / 31.0% and 15 s lag 67.3 / 85.7 / 82.5 / 75.3 / 55.4 /
+41.6%, with wrong-FIX rates within 0.01 pp of the table. WP48 and earlier
+are unaffected: their label already includes the guard. From WP51 on, every
+FIX number is the output as written.
+
+**Backward pass.** `wp16_run_rbpf.py --reverse 1` runs the unchanged filter
+on a time-mirrored copy of the run (`reverse_time.py`):
+- τ = t_first + t_last − t; Doppler, satellite velocity and gyro negated;
+- satellite states at the true transmission time (`cssrlib.rtk.satposs`
+  patched);
+- LLI values moved to each satellite's previous observation;
+- IMU stamps mirrored (each 10 ms sample keeps its physical interval);
+- bootstrap heading turned by π.
+
+Two Phase-1 changes apply in reverse mode only. The bootstrap is 100 epochs
+(20 s) instead of 200, since most runs end parked. `PHASE1_STUCK_N=5` hands
+over to Phase 2 after 5 failed epochs once 20 have committed. The
+mirrored Tokyo 2 and Nagoya 3 bootstraps wedged on the Phase-1 smoother's
+`map::at` (a stale ambiguity key), a latent bug forward runs had not hit.
+Forward runs are bit-identical (Tokyo 2, 600 epochs, every column).
+Smoke test on the last 300 s of Tokyo 2: backward 98.1% correct FIX, 0
+wrong; forward 99.0%.
+
+Backward label alone (3 seeds, worst seed in parentheses): Tokyo 61.3 / 82.1
+/ 67.8% (0.08 / 0.00 / 5.28%), Nagoya 64.5 / 53.7 / 42.9% (1.23 / 1.02 /
+0.10%). The label rule was selected on forward data; on time-reversed data
+it is noticeably less safe on Nagoya 1/2 and one Tokyo 3 seed. Nagoya 2's
+wrong segment (556831–556839 s) is the same wrong basin the forward pass
+holds (|F − B| = 1 cm).
+
+**Combining.** On the forward run's epochs and rows (`combine_fb.py`):
+1. backward integer carry from the forward hysteresis label, no lag limit;
+2. a backward FIX segment (gaps up to 0.6 s) is added if the step-1 label is
+   FIX within 0.3 m on at least 5 of its epochs and never further; on
+   disagreement, the forward label wins;
+3. backward and forward carry from every FIX epoch.
+
+| 3 seeds, correct FIX (mean wrong / FIX; worst seed) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP50 real time (as written) | 63.1% (0.05; 0.05) | 82.8% (0.02; 0.03) | 78.8% (0.00; 0.00) | 70.6% (0.00; 0.00) | 52.2% (0.13; 0.20) | 31.0% (0.04; 0.12) |
+| WP50 15 s lag (as written) | 67.3% (0.05; 0.06) | 85.7% (0.02; 0.03) | 82.5% (0.00; 0.00) | 75.3% (0.00; 0.00) | 55.4% (0.13; 0.19) | 41.6% (0.03; 0.09) |
+| backward carry, no lag limit | 67.3% | 85.7% | 82.5% | 77.5% | 55.5% | 45.2% |
+| + carry re-seeded from carried epochs | 68.4% | 86.1% | 83.1% | 78.8% | 56.0% | 46.9% |
+| **WP51** (+ anchored backward pass) | **69.3% (0.10; 0.15)** | **87.1% (0.02; 0.03)** | **83.6% (0.02; 0.02)** | **79.9% (0.00; 0.00)** | **56.8% (0.23; 0.35)** | **55.8% (0.16; 0.23)** |
+| PPC OFFICIAL, WP50 15 s lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
+| PPC OFFICIAL, WP51 | 84.8% | 94.7% | 92.9% | 76.3% | 58.8% | 81.5% |
+
+The anchor threshold is not critical (k = 1 / 5 / 10 agree within 0.1 pp).
+Variants that were rejected (same 18 runs):
+- dropping the forward fix on a conflict: Tokyo 3 loses 3 pp, because one
+  backward seed is 5.3% wrong;
+- adding every backward fix that the forward output does not contradict:
+  1.7% wrong on Tokyo 3, 1.1% on Nagoya 2;
+- FIX where both PFs report their own fix within 3–10 cm: about +2 pp on
+  Tokyo 1, 4.5–4.8% wrong on Nagoya 2 (shared wrong basin);
+- averaging the two float positions where neither is fixed: fewer epochs
+  within 0.5 m on Tokyo 1, Tokyo 3 and Nagoya 1.
+
+The backward pass helps most on Nagoya 3 (+8.9 pp over the carry steps);
+alone it fixes 42.9% of epochs there, against 31.0% forward. Compute: the post-processed output runs the
+filter twice (backward runs take as long as forward ones).
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

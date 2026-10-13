@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP51** (`experiments/rbpf_fgo/`): a post-processed output
+  from a second, backward pass. `wp16_run_rbpf.py --reverse 1` runs the
+  unchanged filter on a time-mirrored copy of the run (`reverse_time.py`),
+  and `combine_fb.py` adds the backward fixes that the forward label
+  confirms, then carries integers both ways. Correct FIX (3 seeds): 69.3 /
+  87.1 / 83.6 / 79.9 / 56.8 / 55.8% on Tokyo 1–3 / Nagoya 1–3, every seed at
+  or below 0.35% wrong (15 s lag: 67.3 / 85.7 / 82.5 / 75.3 / 55.4 /
+  41.6%). Two independent passes still agree on Nagoya 2's wrong basin, so
+  their agreement alone is never a FIX. Forward runs are unchanged.
+- **Scoring correction (WP50).** The published WP50 FIX numbers also dropped
+  carried epochs that failed the PF's output guard; the `.pos` output keeps
+  them. As written, WP50 scores 63.1 / 82.8 / 78.8 / 70.6 / 52.2 / 31.0% in
+  real time and 67.3 / 85.7 / 82.5 / 75.3 / 55.4 / 41.6% with the 15 s lag
+  (wrong-FIX rates within 0.01 pp). The report and records now use these.
 - **RB-FGO-PF technical report** (`docs/rbpf_fgo_report.md`): method,
   evaluation protocol, results WP43–WP50, negative results (learned labels,
   wide-lane, more particles), limits and next steps.

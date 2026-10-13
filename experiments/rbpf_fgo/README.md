@@ -169,7 +169,16 @@ filter (`RBPF_SHIP=wp48` keeps WP48):
 | `--carry 1` with `--env RBPF_CARRY=1` | forward integer carry (`integer_carry.IntegerCarry`): an unfixed epoch is labelled FIX at the carried-integer position while the last FIX's single-difference integers fit the raw DD carrier (8+ pairs, 0.15 cycle). npz columns `hyst_fix`, `carry_fwd` |
 | `integer_smoother.py runN.npz --max-s 15` | backward carry from later FIX epochs, a fixed-lag output (`runN_smooth.npz` / `.pos`, column `carry_bwd`); needs the row dump (`RBPF_DUMP_ROWS=1`, on in WP50) |
 | `replay_carry.py` | replays the WP50 label layer on a row-dump run (the PF does not see it, so the output equals `RBPF_SHIP=wp50`) |
-| `score_label.py --data-root .../PPC-Dataset runN.npz [runN_smooth.npz ...]` | correct FIX (% of rover epochs) and wrong / FIX of the `rule_fix` label, the FIX columns of [the report](../../docs/rbpf_fgo_report.md); `PPC_CITY` selects the city |
+| `score_label.py --data-root .../PPC-Dataset runN.npz [runN_smooth.npz ...]` | correct FIX (% of rover epochs) and wrong / FIX of the `rule_fix` label as written to the `.pos`, the FIX columns of [the report](../../docs/rbpf_fgo_report.md); `PPC_CITY` selects the city |
+
+WP51 (2026-10-13) adds a post-processed output from a second, backward pass
+(the real-time and 15 s lag outputs are unchanged):
+
+| option | effect |
+|---|---|
+| `--reverse 1` | run on a time-mirrored copy of the run (`reverse_time.py`): epochs reversed, Doppler / satellite velocity / gyro negated, satellite states at the true transmission time, LLI moved to the previous observation. `tow`, truth and outputs stay in true time; npz rows are in processing (reverse) order and carry `reverse=1`. Also sets a 100-epoch Phase-1 bootstrap (`--env PHASE1_EPOCHS=...` overrides) and `PHASE1_STUCK_N=5` |
+| `--env PHASE1_STUCK_N=N` | hand over to Phase 2 after N Phase-1 epochs in a row fail to commit, once 20 have committed (the Phase-1 smoother can wedge on `map::at`). Default 0 (off) |
+| `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3]` | the WP51 output (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
 
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and

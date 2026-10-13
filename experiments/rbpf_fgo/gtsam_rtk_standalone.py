@@ -4273,8 +4273,20 @@ class GtsamRtkTc(GtsamRtk):
             prev_committed = self.last_valid_epoch
             super().process(obs, cs=cs, orb=orb, bsx=bsx, obsb=obsb)
             if self.last_valid_epoch != prev_committed:
+                self._phase1_stuck = 0
                 self._phase1_hist.append((obs.t, self.nav.x[0:3].copy()))
                 if len(self._phase1_hist) >= self.phase1_epochs:
+                    self._transition_to_phase2(obs)
+            else:
+                # WP51 (PHASE1_STUCK_N > 0, set by --reverse): the Phase-1
+                # Point3 smoother can wedge on IncrementalFixedLagSmoother's
+                # "map::at" (a stale ambiguity key), after which no epoch
+                # commits again. Hand over to Phase 2 once 20+ epochs have
+                # committed and this many epochs in a row have not.
+                self._phase1_stuck = getattr(self, '_phase1_stuck', 0) + 1
+                n_stuck = int(os.environ.get('PHASE1_STUCK_N', '0'))
+                if (n_stuck > 0 and self._phase1_stuck >= n_stuck
+                        and len(self._phase1_hist) >= 20):
                     self._transition_to_phase2(obs)
             return
         self._process_phase2(obs, obsb)
@@ -4354,8 +4366,19 @@ class GtsamRtkTc(GtsamRtk):
         disp_enu = enu1 - enu0
         vel_enu = disp_enu / dt_span
         heading_rad = heading_from_vel(vel_enu, fallback=0.0, disp_enu=disp_enu)
+        if os.environ.get('RBPF_REVERSE', '0') == '1':
+            # WP51 backward pass (reverse_time.py): in the time-mirrored
+            # world the vehicle drives backward, so the body x axis points
+            # against the displacement.
+            heading_rad += np.pi
 
         R_b2e = euler_to_R_body2enu(roll_rad, pitch_rad, heading_rad)
+        dt_tail = float(timediff(obs.t, t1))
+        if dt_tail > 0.0:
+            # PHASE1_STUCK_N hand-over: the last committed Phase-1 epoch
+            # is older than this one, so move it along the window velocity
+            # (a normal hand-over has dt_tail == 0).
+            enu1 = enu1 + vel_enu * dt_tail
         body_enu = enu1 - R_b2e @ self.lever_arm
         pose0 = gtsam.Pose3(gtsam.Rot3(R_b2e), gtsam.Point3(*body_enu))
 

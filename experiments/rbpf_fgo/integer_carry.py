@@ -23,6 +23,8 @@ pos0, in cycles: b0 - J.(x - pos0)/lam = N + noise at the true position x.
   pseudoranges disagree by more than `pr_med_m` (median).
 - `backward_carry`: the same carry run backward in time from FIX epochs,
   for a fixed-lag (`max_s`) or post-processed output.
+- `forward_carry`: the offline forward carry, re-seeded at every FIX epoch
+  (WP51 combine_fb.py).
 """
 
 from __future__ import annotations
@@ -173,6 +175,31 @@ class IntegerCarry:
                 m[j] = m[ref] - n
         new = {g: m for g, m in new.items() if len(m) >= 2}
         return p0 + dx, (new or None)
+
+
+def forward_carry(rows_by_epoch, pos0_by_epoch, tow, fix, xyz, **kw):
+    """Carry integer sets forward in time from FIX epochs (offline: unlike
+    the live carry, every FIX epoch re-seeds it, carried ones included
+    when they are in `fix`). Returns (carried mask, carried positions)."""
+    n = len(tow)
+    out = np.zeros(n, dtype=bool)
+    pos = np.full((n, 3), np.nan)
+    car = IntegerCarry(**kw)
+    for i in range(n):
+        R = rows_by_epoch.get(i)
+        p0 = pos0_by_epoch.get(i)
+        if R is None or p0 is None:
+            car.reset()
+            car.t_prev = tow[i]
+            continue
+        if fix[i] and np.all(np.isfinite(xyz[i])):
+            car.init(R, p0, xyz[i], tow[i])
+            continue
+        x = car.step(R, p0, tow[i])
+        if x is not None:
+            out[i] = True
+            pos[i] = x
+    return out, pos
 
 
 def backward_carry(rows_by_epoch, pos0_by_epoch, tow, fix, xyz, max_s=15.0,
