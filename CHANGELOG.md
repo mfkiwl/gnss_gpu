@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP49** (`experiments/rbpf_fgo/`, negative result): wide-lane
+  diagnostics, default off. `RBPF_WL=1` adds a per-epoch wide-lane LAMBDA
+  fix and WL carrier position. `RBPF_WLPF=1` runs a second PF on the
+  wide-lane problem, with WL integer sets held over time. Neither labels
+  enough extra correct fixes at or below 1% wrong (about +1 pp; up to 48%
+  wrong where the shared float is biased), so the shipped WP48 configuration
+  is unchanged (D-047).
 - **RB-FGO-PF WP48** (`experiments/rbpf_fgo/`): measurement model of the
   shared float graph. BeiDou GEO Doppler rows were 3–22 m/s off the
   reference velocity and biased the Doppler velocity prior (about 0.4 m/s

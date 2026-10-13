@@ -631,6 +631,52 @@ looser rule and labels 5.5% of its fixes wrong; every other fold stays at
 or below 0.6% on the mean. Nagoya 2's self-consistent ~0.95 m basin
 (556840–556862 s) remains the open problem.
 
+### WP49 (2026-10-13): wide-lane fixes — negative result
+
+`RBPF_WL=1` (diagnostic, default off) forms DD wide-lane integers
+`N_f0 - N_f1` per pair from the epoch's float DD ambiguities, runs a
+two-candidate LAMBDA on them, and solves a WL carrier position (epoch-local
+LS with the DD-PR rows and the relaxed float prior). It runs on the WP48
+configuration and leaves the PF unchanged. Seed 20260710:
+
+| | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP48 correct FIX | 56.5% | 78.5% | 74.6% | 66.5% | 47.9% | 27.7% |
+| WL position within 0.5 m (all epochs) | 70.3% | 85.4% | 86.2% | 78.6% | 55.9% | 57.9% |
+| extra WL labels, ratio 5, rms 10 cm, n 6 | +8.2% (10.8% wrong) | +4.7% (3.4%) | +7.6% (4.1%) | +6.6% (1.0%) | +3.4% (44.8%) | +11.0% (3.7%) |
+| extra WL labels, ratio 5, rms 5 cm, n 8 | +2.4% (2.1%) | +1.9% (0.6%) | +3.9% (4.9%) | +2.7% (0.5%) | +1.0% (11.9%) | +2.5% (0.8%) |
+| same, held 5 epochs | +1.0% (0%) | +1.0% (0%) | +2.6% (5.1%) | +1.3% (0%) | +0.4% (0%) | +0.5% (0%) |
+
+The headroom exists (the WL position is within 0.5 m on 7–30 pp more
+epochs than the FIX label), but the per-epoch WL ratio test on the shared
+graph's covariance does not separate right from wrong WL integer sets.
+Wrong sets persist for tens of epochs where the float is biased by
+multipath (Tokyo 3, and Nagoya 2 at 40%+ wrong). The WL position also does
+not veto Nagoya 2's wrong basin: the wrong cm-level fixes there are a
+median 0.23 m from the WL position, because the float is biased the same
+way. Not shipped. A usable WL layer would need WL integer hypotheses held
+over time (PF basins at the WL level, or Melbourne–Wübbena averaging), and
+it would hit the same code-multipath bias.
+
+**Wide-lane RB-PF (`RBPF_WLPF=1`).** A second PF instance runs the same
+particle machinery on the wide-lane problem: WL floats `T y`, covariance
+`T Q T'`, WL carrier rows next to the DD-PR rows. Its WL integer sets are
+held over time, and a slip on either band drops the satellite. It feeds
+nothing back, and the main PF's output is bit-identical with it on.
+Labelling the epochs the cm-level rule leaves unfixed by the WL PF's own
+agreement (seed 20260710):
+
+| extra WL labels | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| `nb_at[0.99] >= 5` | +5.2% (20.3% wrong) | +3.8% (9.5%) | +6.6% (5.2%) | +4.8% (15.1%) | +3.1% (48.2%) | +7.2% (5.1%) |
+| `nb_at[0.99] >= 8` | +0.9% (0.9%) | +0.8% (3.8%) | +2.8% (7.5%) | +0.8% (12.5%) | +0.4% (0%) | +1.1% (0%) |
+
+The WL PF converges where the NL PF already does, and where the NL PF does
+not, its WL basins are wrong as often. Holding WL hypotheses over time does
+not remove the bias of the shared float. Not shipped. The 3D-map (PLATEAU)
+NLOS route stays untested here: the building data hosts are not reachable
+from this environment.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

@@ -153,6 +153,13 @@ quality exceeds it.
 | `--env PR_CNR_ERR=e` / `PR_CNR_REF=c` | add `e^2 * 10^((c - C/N0) / 10)` per rover satellite to the DD-PR variance (default c = 45 dB-Hz). Shipped e = 0.5 |
 | `--env HUBER_PR=k` / `HUBER_CP=k` | Huber loss on DD-PR / DD-CP (whitened threshold). Shipped 1.345 / 2.0 |
 
+WP49 (2026-10-13) diagnostics, not shipped (D-047):
+
+| option | effect |
+|---|---|
+| `--env RBPF_WL=1` | per-epoch wide-lane fix: DD WL integers from the float, LAMBDA ratio, WL carrier position (`rb_wl_n`, `rb_wl_ratio`, `rb_wl_rms`, `wl_xyz`) |
+| `--env RBPF_WLPF=1` | a second PF on the wide-lane problem (no feedback, main output unchanged): `wlpf_ok`, `wlpf_nb_at`, `wlpf_nb_at_ne`, `wlpf_ne_mass`, `wlpf_npairs`, `wlpf_xyz` |
+
 Tools: `fix_integrity.py` (correct FIX / wrong FIX on one scorer for our
 npz, `.pos`, inuex35 npz and libgnss++ CSV), `fix_rules.py` and
 `fix_rule_loro.py` (label-rule sweeps and leave-one-run-out selection;
