@@ -677,6 +677,62 @@ not remove the bias of the shared float. Not shipped. The 3D-map (PLATEAU)
 NLOS route stays untested here: the building data hosts are not reachable
 from this environment.
 
+### WP50 (2026-10-13): hysteresis label and integer carry
+
+**Why time.** A wrong basin is the true trajectory shifted by a fixed
+offset δ. While the satellite geometry is static, carrier phase cannot
+reveal δ, and in urban canyons the code is biased the same way for tens of
+seconds. The libgnss++ WP176 route (a separate, heavily validated KF-RTK in
+this repository) reaches the same wall: Tokyo run1 54.4% / Nagoya run1 69.4%
+correct FIX at ~0% wrong (RB-FGO-PF WP48: 56.4% / 66.5%), and its report
+concludes that a new independent discriminator is needed. Two properties of
+time were unused:
+
+- Wrong fixes are short flickers. Dropping FIX labels in fix-runs shorter
+  than 2 s cuts Nagoya 2's wrong share from 0.54% to 0.04% at a cost of
+  1.7 pp (3 seeds).
+- A correct integer set stays valid while the carrier stays locked. Many
+  unfixed epochs are followed, with no data gap, by a correct FIX within
+  15 s (+11 to +28 pp upper bound, before slips).
+
+**Hysteresis label.** Search over entry rule, continuation rule, entry
+length and bridge (6 runs × 3 seeds, every seed at or below 0.7% wrong):
+enter after the WP48 rule held 5 epochs, stay while `nb_at[0.90] >= 6` (or
+the non-empty form, or the graph's LAMBDA fix with 5+), bridging 2 failed
+epochs. Mean 58.6 → 60.9%, worst seed 0.62 → 0.21%. Leave-one-run-out, 5
+of 6 folds pick this rule and stay at or below 0.01% wrong held out; the
+Nagoya 2 fold picks an entry length of 1 (nothing else in training shows why
+it is needed) and gets 2.6% wrong. The 1 s entry is therefore a design
+choice, not a selected one.
+
+**Integer carry** (`integer_carry.py`, parameters fixed a priori). The
+single-difference integers of a FIX epoch (from its reported position and
+the raw DD carrier of the row dump) are carried while a carrier-only LS
+still fits them. A pair is dropped above 0.15 cycle (slip), a new satellite
+joins only within 0.10 cycle, and the carry stops below 8 pairs, on a data
+gap, on weak geometry, or when the DD pseudoranges disagree by more than
+3 m (median). Seed 10 sensitivity: residual-RMS limits from 2 to 5 cm give
+identical results; 6 pairs lets Tokyo 1 reach 0.34% wrong, 10 pairs loses
+0.3–0.7 pp; backward windows beyond 15 s add at most 1.2 pp. Seeding the
+carry from the plain WP48 rule propagates its wrong fixes (Nagoya 2: 146
+wrong carried epochs). Seeding it from the hysteresis label, no carried
+epoch came from a wrong source.
+
+| 3 seeds, correct FIX (wrong / FIX, worst seed) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| WP48 | 56.4% (0.01%) | 78.7% (0.01%) | 74.8% (0.03%) | 66.5% (0.10%) | 47.8% (0.62%) | 27.4% (0.21%) |
+| WP50 real time (hysteresis + forward carry) | 61.8% (0.04%) | 82.5% (0.03%) | 77.9% (0.00%) | 70.4% (0.00%) | 51.1% (0.20%) | 29.7% (0.13%) |
+| WP50 + backward carry, 15 s fixed lag | 65.3% (0.05%) | 85.0% (0.03%) | 81.1% (0.00%) | 74.6% (0.00%) | 54.2% (0.19%) | 38.4% (0.10%) |
+| PPC OFFICIAL, real time | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
+
+With the 15 s lag, the correct-FIX rate exceeds libgnss++ KF-RTK's raw FIX
+rate on 5 of 6 runs (KF-RTK: 68.0 / 76.7 / 71.6 / 64.9 / 48.6 / 29.8%, at
+1.8–29% wrong). The label layer does not feed the PF: `RBPF_SHIP=wp50` on
+Tokyo 1 (seed 20260710) is bit-identical to `replay_carry.py` on the
+row-dump run, and the 3-seed table is that replay on the row-dump runs of
+seeds 20260710–12.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

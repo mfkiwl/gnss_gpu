@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP50** (`experiments/rbpf_fgo/`): the PF decides integer sets,
+  and carrier continuity carries them. `run_ship.sh` now runs the WP48 filter
+  with a hysteresis label (`--fix-hyst 5,2,2,6,2,6,0.1,5`: enter after the
+  WP48 rule held 5 epochs, stay while 6+ pairs agree above 0.90) and a
+  forward integer carry (`--carry 1`, `RBPF_CARRY=1`, `integer_carry.py`).
+  The carry keeps the last FIX's single-difference integers while the raw DD
+  carrier fits them (8+ pairs, 0.15 cycle), and reports those epochs FIX at
+  the carried-integer position. `integer_smoother.py` runs the same carry
+  backward for a 15 s fixed-lag output. Correct FIX (3 seeds), real time:
+  Tokyo 61.8 / 82.5 / 77.9%, Nagoya 70.4 / 51.1 / 29.7%. With the 15 s lag:
+  65.3 / 85.0 / 81.1%, 74.6 / 54.2 / 38.4%. Every seed stays at or below
+  0.20% wrong (WP48: 56.4 / 78.7 / 74.8 / 66.5 / 47.8 / 27.4%, worst 0.62%).
+  `replay_carry.py` replays the label layer on a row-dump run.
+  `RBPF_SHIP=wp48` reproduces the previous release.
 - **RB-FGO-PF WP49** (`experiments/rbpf_fgo/`, negative result): wide-lane
   diagnostics, default off. `RBPF_WL=1` adds a per-epoch wide-lane LAMBDA
   fix and WL carrier position. `RBPF_WLPF=1` runs a second PF on the
