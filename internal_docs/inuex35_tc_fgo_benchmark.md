@@ -658,6 +658,25 @@ way. Not shipped. A usable WL layer would need WL integer hypotheses held
 over time (PF basins at the WL level, or Melbourne–Wübbena averaging), and
 it would hit the same code-multipath bias.
 
+**Wide-lane RB-PF (`RBPF_WLPF=1`).** A second PF instance runs the same
+particle machinery on the wide-lane problem: WL floats `T y`, covariance
+`T Q T'`, WL carrier rows next to the DD-PR rows. Its WL integer sets are
+held over time, and a slip on either band drops the satellite. It feeds
+nothing back, and the main PF's output is bit-identical with it on.
+Labelling the epochs the cm-level rule leaves unfixed by the WL PF's own
+agreement (seed 20260710):
+
+| extra WL labels | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| `nb_at[0.99] >= 5` | +5.2% (20.3% wrong) | +3.8% (9.5%) | +6.6% (5.2%) | +4.8% (15.1%) | +3.1% (48.2%) | +7.2% (5.1%) |
+| `nb_at[0.99] >= 8` | +0.9% (0.9%) | +0.8% (3.8%) | +2.8% (7.5%) | +0.8% (12.5%) | +0.4% (0%) | +1.1% (0%) |
+
+The WL PF converges where the NL PF already does, and where the NL PF does
+not, its WL basins are wrong as often. Holding WL hypotheses over time does
+not remove the bias of the shared float. Not shipped. The 3D-map (PLATEAU)
+NLOS route stays untested here: the building data hosts are not reachable
+from this environment.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
