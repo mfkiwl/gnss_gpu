@@ -1,8 +1,8 @@
 # RB-FGO-PF technical report: integer-ambiguity particle filtering on a shared factor graph
 
-Status as of WP58 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
+Status as of WP60 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-057 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-059 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -364,6 +364,63 @@ Two fixes were tried on it:
   dumps do not support it: pseudorange residuals at arc ends (p90 2.1 m)
   are no worse than at arc starts (2.7 m).
 
+### Real-time ensemble (WP59)
+
+Several forward runs of the filter, each with its own particles, run side by
+side on the same epochs. Every member offers four candidates per epoch (its
+reported position, graph float, MAP and mixture beliefs). Per epoch,
+`rt_ensemble.py` outputs one of them, using this epoch and earlier ones only.
+
+- **Members.** The three seeds of WP56 and one variant that also uses the
+  carrier of one-band satellites at 40 dB-Hz or more (seed 20260710; WP58
+  found it worse alone, but its errors fall elsewhere).
+- **Choice.**
+  - Rule (WP55 extended to members): a member's reported FIX first, best
+    windowed ambiguity fit among fixing members; otherwise the candidate with
+    the best ambiguity fit over the last 6 epochs, if it beats member 0's
+    reported position by 0.1.
+  - Learned: a gradient-boosted classifier scores every candidate's chance
+    of being within 0.5 m from 46 causal features (ambiguity fit over 1–30
+    epochs, FIX flags, how many candidates agree within 0.1–0.6 m, PF state,
+    time since the last FIX). The model for each run is trained on the
+    other five runs only.
+- **Height bias.** On epochs without a member FIX the output moves down by
+  0.10–0.15 m. Unfixed positions sit high in street canyons: delayed
+  reflected signals on the lower satellites lift the double-differenced
+  solution (median +0.46 to +1.02 m on the epochs lost to height alone).
+  The amount is chosen leave-one-run-out; every fold picks 0.10 or 0.15 m.
+- **Rover gaps.** Where the rover file has no epochs (Nagoya 1: 10 s;
+  Tokyo 1: short gaps), `wp16_run_rbpf.py --gap-fill` writes IMU
+  dead-reckoned positions at 5 Hz, anchored on the output before the gap.
+- **FIX label.** FIX where at least two map-free members hold their own
+  WP56 label within 0.2 m of the output.
+
+### NLOS from a 3D city model (WP60)
+
+PLATEAU, the Japanese open 3D city model, covers both cities. The building
+and bridge meshes along each run are loaded once (2.2–3.6 M triangles per
+Tokyo run, heights converted to the ellipsoid with the EGM96 geoid). On each
+epoch the filter traces a ray from its IMU-predicted antenna position to
+every satellite (`plateau_los.py`, a CPU grid tracer; no GPU). A satellite
+whose ray hits a building is NLOS for that epoch. Only this epoch's
+prediction is used, so the mask is real time. Map-aided runs differ from
+WP56 in three settings:
+
+- **Exclude or down-weight.** NLOS pairs leave the double differences while
+  at least 6 satellites stay in line of sight; with fewer, they stay with a
+  5× noise sigma (`NLOS_MEAS_MODE=3`). Plain exclusion left too few rows in
+  canyons and dropped epochs to dead reckoning.
+- **Reference satellite.** Each system's reference is the highest
+  line-of-sight satellite (`NLOS_REF_LOS=1`). An NLOS reference would mark
+  every pair of its system.
+- **Near surfaces.** Rays ignore surfaces within 3 m. Otherwise a bridge
+  deck put a surface 1.1 m above the antenna whenever the car drove over a
+  bridge (Tokyo 2: zenith blocked on 1,354 of 9,151 epochs; 7 with buildings
+  only). An antenna that looks enclosed keeps the previous epoch's set.
+
+36% of Tokyo 1's satellite-epochs are NLOS (Nagoya 2: 35%). In Nagoya 2's
+375 s street canyon 14–22 of 24–30 satellites are NLOS.
+
 ## How the results moved
 
 | Release | Change | Correct FIX (3 seeds) | Worst wrong / FIX |
@@ -481,6 +538,39 @@ benchmark record:
   vetoing entry there costs Nagoya 5–15 pp and leaves Nagoya 2's wrong
   basin, which is chosen during a stop but labelled after the vehicle
   moves.
+- **Committing epochs with fewer satellites (WP59).** The graph abandons an
+  epoch with fewer than 6 common satellites and dead-reckons through it.
+  - **4 satellites** (`P2_MIN_NS=4`): +1.4 pp of Nagoya 1's first 1,400
+    epochs, but single-member PPC OFFICIAL over the full runs moves −1.0
+    (Nagoya 1) and 0.0 (Tokyo 1). The rest of the difference is the usual
+    run-to-run spread of the PF. As a fifth member it adds 0.1–0.4 pp.
+  - **IMU-only epochs** (`P2_IMU_ONLY=1`; the IMU factor, NHC and ZUPT only):
+    58.3% on those 1,400 epochs, against 60.4% for 4 satellites and 59.1%
+    shipped. The NHC-constrained states drift faster than a pure IMU
+    prediction from the last GNSS epoch (6 s without GNSS: 0.30 → 0.99 m
+    against 0.18 → 0.42 m).
+  - **Doppler from 2–4 satellites** (clock drift eliminated, `DOP_LOWSAT_SIG`):
+    it fired on 3 of those 1,400 epochs.
+- **Rover-gap dead reckoning alone (WP59).** +0.3 pp on Tokyo 1 and nothing
+  on Nagoya 1: the filter had already abandoned the 4 s before Nagoya 1's
+  10 s gap (fewer than 6 satellites), so the gap starts from a stale anchor
+  0.59 m off.
+- **Other position rules (WP59).** Carrying the last FIX's offset from the
+  float into later float epochs moves the ensemble by −0.2 to +0.07 pp.
+  Taking the medoid or the median of the members' candidates loses
+  1.5–2.1 pp against the ambiguity-fit choice. A libgnss++ KF-RTK member adds
+  0.1 pp and is not used (external engine).
+- **Plain NLOS exclusion (WP60).** Excluding every map-NLOS pair leaves
+  canyon epochs with fewer than 4 rows, which the graph abandons (Nagoya 2:
+  dead reckoning on 10% of the first 3,000 epochs against 2%). A mask traced
+  from a first, map-free pass's positions (meters off in canyons) gains
+  0.6–0.7 pp on Nagoya 2 alone but loses 2.4 pp of Tokyo 1's first 4,500
+  epochs when it excludes.
+- **The map-aided filter's own FIX label (WP60).** On Nagoya 2 it marks
+  5.84% of its fixes wrong (3 seeds, worst 7.06%). The 0.95 m wrong basin
+  holds more firmly: the satellites the map removes include those that
+  disagreed with it. The ensemble label therefore uses only the map-free
+  members.
 
 ## Limits
 
@@ -529,8 +619,15 @@ benchmark record:
   epochs/s with three runs sharing a 4-core machine, against 5 Hz data. A
   GPU MLAMBDA path exists (`RBPF_CUDA=1`), but more particles did not raise
   accuracy. The post-processed output runs the filter twice.
-- **Not tested.** 3D-map (PLATEAU) NLOS rejection: the building data was not
-  reachable from the environment used.
+- **Map-aided runs need a 3D city model.** PLATEAU covers Japanese cities
+  only. Heights use EGM96 (up to about 1 m from the GSI geoid), and the
+  tracer ignores surfaces within 3 m of the antenna. In Nagoya 2's 375 s
+  street canyon (21% of its distance) no candidate of any member, map-aided
+  or not, is within 0.5 m (best candidate: median 2.35 m off).
+- **Ensemble choices tuned on these runs.** The learned choice and the
+  height bias are trained leave-one-run-out on these six runs; PPC2024
+  participants had ground truth only for two other runs. Seven filters run
+  in parallel (real time on 7+ cores).
 
 ## Next steps
 
