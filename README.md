@@ -118,7 +118,7 @@ Slips and outages remove the affected ambiguity from every particle.
 | Wrong FIX / FIX ↓ (worst seed) | 0.05% (0.06%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.13% (0.19%) | 0.03% (0.09%) |
 | Correct FIX, post-processed (WP51) | 69.3% | 87.1% | 83.6% | 79.9% | 56.8% | 55.8% |
 | Wrong FIX / FIX ↓ (worst seed) | 0.10% (0.15%) | 0.02% (0.03%) | 0.02% (0.02%) | 0.00% (0.00%) | 0.23% (0.35%) | 0.16% (0.23%) |
-| PPC OFFICIAL (position only), real time | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% |
+| PPC OFFICIAL (position only), real time (WP55) | 85.5% | 93.7% | 92.3% | 77.2% | 57.5% | 83.7% |
 | PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.4% | 75.0% | 57.8% | 79.4% |
 | PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.0% | 95.6% | 93.0% | 79.5% | 64.2% | 90.9% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
@@ -133,7 +133,9 @@ forward, backward or float positions best fits the carrier modulo whole
 cycles: PPC OFFICIAL averages 85.9% over the six runs (WP51: 81.5%), on
 par with the PPC2024 winner's 85.6%. FIX numbers score the `.pos` output as written (the WP50 numbers
 first published also dropped guard-failing carried epochs). No external RTK
-engine feeds the FIX label. `RBPF_SHIP=wp48` … `wp43` reproduce earlier releases;
+engine feeds the FIX label. WP55 (the default) applies the same choice in
+real time over the last 6 epochs: PPC OFFICIAL 81.6% (WP50: 79.9%).
+`RBPF_SHIP=wp50` … `wp43` reproduce earlier releases;
 `PPC_CITY=nagoya` selects the Nagoya lever arm. Details:
 [technical report](docs/rbpf_fgo_report.md) ·
 [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) ·

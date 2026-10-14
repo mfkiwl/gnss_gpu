@@ -887,6 +887,41 @@ decision tree (depth 2–3) reaches only 81.5–82.2%. Nine AF variants (window
 FIX labels and FIX positions are identical to WP51 on all 18 runs; per-seed
 spread of the official score is ±0.1 (Tokyo 1) to ±3.2 pp (Nagoya 1).
 
+### WP55 (2026-10-14): real-time ambiguity-fit position choice; Nagoya 2
+
+**Real time.** Causal candidates: reported position, graph float, MAP and
+mixture tracked beliefs (all in the live loop). Oracle over them: 79.8 →
+84.0% (6-run mean, scratch weighting); with the code-only position 84.0%.
+AF averaged over the last N epochs, margin m (scratch weighting): N = 1 /
+3 / 6 / 11, m = 0 / 0.05 / 0.1 / 0.2 all give 81.7–82.1%. Shipped N = 6,
+m = 0.1 (`--af-select 6`, `RBPF_SHIP=wp55`, now the default):
+
+| PPC OFFICIAL (`score_runs`, 3 seeds) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| WP50 | 84.3 ± 0.9 | 93.8 ± 0.1 | 91.8 ± 0.8 | 74.5 ± 0.9 | 56.1 ± 1.0 | 78.8 ± 2.5 | 79.9 |
+| WP55 | 85.5 ± 0.8 | 93.7 ± 0.1 | 92.3 ± 0.8 | 77.2 ± 1.5 | 57.5 ± 1.4 | 83.7 ± 2.7 | 81.6 |
+
+Live check (Nagoya 3, seed 20260710, 1500 epochs): `pos_src` and positions
+equal the offline causal replay on the run's own row dump (142 epochs
+changed), and the graph float is identical to the WP48 row-dump run.
+
+**Windowed AF offset search (negative).** Shift the last W epochs of the
+forward trajectory by a common ENU offset (±3 m horizontal, ±1.5 m
+vertical, 5 cm grid) and take the offset with the highest mean AF. Nagoya 2,
+seed 20260710, every 50th unfixed epoch (79 epochs), W = 5: within 0.5 m on
+18% (forward position 22%); restricting to AF peaks ≥ 0.6 / 0.7 / 0.8 gives
+27 / 34 / 39% against 31 / 38 / 43% for the forward position.
+
+**Nagoya 2's remaining loss.** Post-processed (WP54, seed 20260710), 17.1%
+of the distance is more than 2 m off and 17.4% is 0.5–2 m off. The 2 m+ share is almost all
+one stretch, 555966–556367 s (seed 20260710): 2–7 DD satellites, 0–8
+carrier pairs, DDPR quality at its cap (30), position 3–20 m off on IMU dead
+reckoning in both passes (two stops of 77 s and 66 s inside). Blending
+forward and backward positions there by time since each pass's last FIX
+(inverse (t + t0)^p, epochs with at most 2 / 4 / 6 pairs): Nagoya 2 +0.5 to
++1.1 pp, but Tokyo 3 −2.2 to −4.8 pp and Nagoya 1 up to −3.2 pp (6-run mean
+84.6–86.1% against 85.8%). Not shipped.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |
