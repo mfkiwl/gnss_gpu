@@ -1,8 +1,8 @@
 # RB-FGO-PF technical report: integer-ambiguity particle filtering on a shared factor graph
 
-Status as of WP54 (2026-10-13). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
+Status as of WP55 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-052 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-053 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -214,6 +214,24 @@ Other selectors, on the same 18 runs:
 The shipped rule needs no training data. The nine AF variants tried
 (window 0 / ±2 / ±5 epochs, margin 0 / 0.05 / 0.1) all scored 85.1–85.8%.
 
+### Real-time position choice (WP55)
+
+The same choice runs live (`wp16_run_rbpf.py --af-select 6`, the default
+`RBPF_SHIP=wp55`), among candidates available causally: the reported
+position, the graph float, and the PF's MAP and mixture tracked beliefs. AF
+is averaged over the last 6 epochs (1.2 s), and the margin is 0.1. Picking
+the best of these four on every epoch would raise the real-time PPC
+OFFICIAL from 79.9% to 84.0%; the AF rule reaches 81.6%:
+
+| PPC OFFICIAL, real time | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| WP50 | 84.3% | 93.8% | 91.8% | 74.5% | 56.1% | 78.8% | 79.9% |
+| WP55 | 85.5% | 93.7% | 92.3% | 77.2% | 57.5% | 83.7% | 81.6% |
+
+FIX labels and the filter are unchanged, and the live selection equals an
+offline causal replay (`af_select.py`) on the row dump. Seven window /
+margin variants scored 81.7–82.1% (scratch weighting).
+
 ## How the results moved
 
 | Release | Change | Correct FIX (3 seeds) | Worst wrong / FIX |
@@ -242,7 +260,8 @@ its own (forward: 31.0%).
 PPC OFFICIAL (position only): WP46 80.8 / 92.7 / 90.4 / 65.4 / 55.3 / 20.2%;
 WP50 84.3 / 93.8 / 91.8 / 74.5 / 56.1 / 78.8%; WP50 with the 15 s lag
 84.6 / 94.2 / 92.4 / 75.0 / 57.8 / 79.4%; WP51 84.8 / 94.7 / 92.9 / 76.3 /
-58.8 / 81.5%; WP54 92.0 / 95.6 / 93.0 / 79.5 / 64.2 / 90.9% (mean 85.9%). The
+58.8 / 81.5%; WP54 92.0 / 95.6 / 93.0 / 79.5 / 64.2 / 90.9% (mean 85.9%);
+real time with WP55 85.5 / 93.7 / 92.3 / 77.2 / 57.5 / 83.7% (mean 81.6%). The
 PPC2024 winner (TURING) reported 85.6%; our numbers are 3-seed means with up
 to ±3 pp seed spread on Nagoya 1, so this is parity, not a clear win.
 
@@ -282,6 +301,16 @@ benchmark record:
   episodes last a median of 0.4 s, so the holds rarely act; seed 20260710
   moved Tokyo 1 by +0.2 pp, Nagoya 3 by −3.0 pp and Nagoya 2's wrong share
   from 0.12 to 0.48%.
+- **Searching for a common offset with the carrier (WP55).** Shifting the
+  last 1 s of the forward trajectory by the offset that best fits the
+  carrier modulo whole cycles (±3 m horizontal, ±1.5 m vertical, 5 cm grid)
+  lands within 0.5 m on 18% of sampled unfixed Nagoya 2 epochs, against 22%
+  for the forward position: with 12–14 pairs the search volume holds many
+  spurious peaks. Choosing among a few candidates (WP54/WP55) avoids that.
+- **Blending the passes where carrier pairs are scarce (WP56).** Weighting
+  forward and backward positions by the time since each pass's last FIX on
+  epochs with at most 2–6 pairs gains up to 1 pp on Nagoya 2 but loses
+  2–5 pp on Tokyo 3.
 - **No FIX entry while parked (WP53).** Parked epochs are 33–55% of each run;
   vetoing entry there costs Nagoya 5–15 pp and leaves Nagoya 2's wrong
   basin, which is chosen during a stop but labelled after the vehicle
@@ -305,7 +334,10 @@ benchmark record:
   stay consistent.
 - **Nagoya 2.** A self-consistent basin about 0.95 m off (556831–556862 s)
   remains the main source of wrong fixes. The backward pass falls into it
-  too.
+  too. Most of its position loss is one 6.5-minute stretch (555966–556367 s)
+  with 2–7 satellites and 0–8 carrier pairs, where both passes drift 3–20 m
+  on IMU dead reckoning; 17% of its distance stays more than 2 m off even
+  post-processed (seed 20260710).
 - **Compute.** CPU only. The PF step takes 80–90 ms; full runs process 5–7.5
   epochs/s with three runs sharing a 4-core machine, against 5 Hz data. A
   GPU MLAMBDA path exists (`RBPF_CUDA=1`), but more particles did not raise
@@ -344,5 +376,5 @@ python score_runs.py --data-root .../PPC-Dataset wp50
 PPC_CITY=nagoya python score_runs.py --data-root .../PPC-Dataset wp50ng
 ```
 
-`RBPF_SHIP=wp48`, `wp47`, `wp46`, `wp45` and `wp43` reproduce the earlier
+`RBPF_SHIP=wp50`, `wp48`, `wp47`, `wp46`, `wp45` and `wp43` reproduce the earlier
 releases.

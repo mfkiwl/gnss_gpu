@@ -180,6 +180,15 @@ WP51 (2026-10-13) adds a post-processed output from a second, backward pass
 | `--env PHASE1_STUCK_N=N` | hand over to Phase 2 after N Phase-1 epochs in a row fail to commit, once 20 have committed (the Phase-1 smoother can wedge on `map::at`). Default 0 (off) |
 | `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3] [--af-half 5] [--af-margin 0.1]` | the WP51 output; WP54 adds `pos_src`: on unfixed epochs the position is the one of forward / backward / mean / forward float / backward float that best fits the DD carrier modulo whole cycles (ambiguity function over ±`--af-half` epochs, forward kept unless beaten by `--af-margin`; `--af-half -1` keeps forward positions). Then (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
 
+WP55 (2026-10-14) is the default (`RBPF_SHIP=wp50` keeps WP50): the
+same filter and label, plus a causal choice of the reported position on
+unfixed epochs.
+
+| option | effect |
+|---|---|
+| `--af-select N [--af-margin 0.1]` | with RBPF_CARRY=1: on epochs the label leaves unfixed, report whichever of the reported position, graph float and MAP / mixture tracked beliefs best fits the DD carrier modulo whole cycles, averaged over the last N epochs (`af_select.CausalSelector`); npz columns `pos_src` (0 reported, 1 float, 2 MAP belief, 3 mixture belief) and `pre_af_xyz`. Shipped N = 6 |
+| `af_select.py runN.npz [--past 6] [--margin 0.1]` | the same choice replayed on a saved run with its row dump (`runN_af.npz`) |
+
 WP52 (negative result, default off):
 
 | option | effect |

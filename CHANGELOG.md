@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP55** (`experiments/rbpf_fgo/`, new default
+  `RBPF_SHIP=wp55`): the ambiguity-fit position choice now also runs in
+  real time (`--af-select 6`, `af_select.py`), among the reported position,
+  the graph float and the PF's tracked beliefs over the last 6 epochs.
+  Real-time PPC OFFICIAL 85.5 / 93.7 / 92.3 / 77.2 / 57.5 / 83.7%, mean
+  81.6% (WP50: 79.9%); FIX labels unchanged. Negative results recorded: a
+  windowed carrier offset search, and forward/backward blending in
+  low-satellite stretches. Nagoya 2's remaining loss is a 6.5-minute
+  stretch with 2–7 satellites.
 - **RB-FGO-PF WP54** (`experiments/rbpf_fgo/combine_fb.py`): on epochs the
   post-processed label leaves unfixed, report whichever of the forward,
   backward, mean and float positions best fits the raw DD carrier modulo

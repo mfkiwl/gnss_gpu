@@ -37,6 +37,7 @@ import argparse
 from pathlib import Path
 
 import numpy as np
+from af_select import ambiguity_fit, choose
 from integer_carry import backward_carry, forward_carry
 from integer_smoother import load_rows
 
@@ -59,25 +60,6 @@ def _on_fwd(tow, btow, bval):
     return out
 
 
-def ambiguity_fit(rows, cands):
-    """(n, k) ambiguity-function value of each candidate position on each
-    epoch's DD rows (NaN without rows or position)."""
-    by, pos0 = rows
-    n, k = len(cands[0]), len(cands)
-    af = np.full((n, k), np.nan)
-    for i in range(n):
-        R, p0 = by.get(i), pos0.get(i)
-        if R is None or p0 is None:
-            continue
-        J, lam, b0 = R[:, 7:10], R[:, 6], R[:, 10]
-        for c in range(k):
-            x = cands[c][i]
-            if np.all(np.isfinite(x)):
-                v = b0 - (J @ (x - p0)) / lam
-                af[i, c] = np.mean(np.cos(2 * np.pi * (v - np.rint(v))))
-    return af
-
-
 def select_float(fwd, bwd, rows, fix, xyz, half=5, margin=0.1):
     """WP54 step 4. Returns (xyz, pos_src)."""
     tow = np.asarray(fwd["tow"], dtype=float)
@@ -85,14 +67,7 @@ def select_float(fwd, bwd, rows, fix, xyz, half=5, margin=0.1):
     bf = _on_fwd(tow, bwd["tow"], np.asarray(bwd["flt_xyz"], dtype=float))
     cands = [xyz, bx, 0.5 * (xyz + bx), np.asarray(fwd["flt_xyz"], dtype=float), bf]
     ok = ~fix & np.all([np.all(np.isfinite(c), axis=1) for c in cands], axis=0)
-    af = np.nan_to_num(ambiguity_fit(rows, cands), nan=-9.0)
-    if half > 0:
-        ker = np.ones(2 * half + 1) / (2 * half + 1)
-        af = np.stack([np.convolve(af[:, j], ker, mode="same")
-                       for j in range(af.shape[1])], axis=1)
-    pick = np.argmax(af, axis=1)
-    pick = np.where(af[np.arange(len(pick)), pick] - af[:, 0] > margin, pick, 0)
-    pick = np.where(ok, pick, 0)
+    pick = choose(ambiguity_fit(rows, cands), ok, margin, half=half)
     out = np.stack(cands, axis=1)[np.arange(len(pick)), pick]
     return np.where(ok[:, None], out, xyz), pick
 

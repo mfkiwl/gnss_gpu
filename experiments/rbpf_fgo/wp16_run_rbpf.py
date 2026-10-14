@@ -272,6 +272,15 @@ def main() -> int:
                          "an epoch the label leaves unfixed is labelled FIX "
                          "at the carried-integer position while the last "
                          "FIX epoch's integer set still fits the DD carrier")
+    ap.add_argument("--af-select", type=int, default=0,
+                    help="WP55: on epochs the label leaves unfixed, report "
+                         "whichever of the reported position, graph float and "
+                         "MAP / mixture tracked beliefs best fits the DD "
+                         "carrier modulo whole cycles, averaged over the last "
+                         "N epochs (af_select.py; needs RBPF_CARRY=1). 0 = off")
+    ap.add_argument("--af-margin", type=float, default=0.1,
+                    help="WP55: fit margin a candidate needs over the "
+                         "reported position")
     ap.add_argument("--reverse", type=int, default=0,
                     help="WP51: backward pass. Runs the filter on a "
                          "time-mirrored copy of the run (reverse_time.py); "
@@ -404,7 +413,7 @@ def main() -> int:
         "trk_map_xyz", "trk_mix_xyz", "trk_map_mass",
         "trk_var_xyz", "trk_var_mass", "rb_nb_at", "ddpr_xyz",
         "base_smode", "base_nb", "rb_reason", "rb_nb_at_ne", "rb_afv_n", "rb_afv_frac",
-        "rb_ne_mass", "rule_fix", "hyst_fix", "carry_fwd", "rb_wl_n", "rb_wl_ratio", "rb_wl_rms",
+        "rb_ne_mass", "rule_fix", "hyst_fix", "carry_fwd", "pos_src", "pre_af_xyz", "rb_wl_n", "rb_wl_ratio", "rb_wl_rms",
         "wl_xyz", "wlpf_ok", "wlpf_nb_at", "wlpf_nb_at_ne", "wlpf_ne_mass",
         "wlpf_npairs", "wlpf_xyz") + _FCOLS}
     fix_rule = (tuple(float(x) for x in args.fix_rule.split(","))
@@ -422,6 +431,10 @@ def main() -> int:
     # WP52: 1 = hold the carried integer set in the shared graph on carried
     # epochs, 2 = also on labelled FIX epochs (needs --carry 1)
     carry_fb = int(os.environ.get('RBPF_CARRY_FB', '0'))
+    af_sel = None
+    if args.af_select > 0:
+        from af_select import CausalSelector
+        af_sel = CausalSelector(past=args.af_select, margin=args.af_margin)
     pos_rows = []
     rtk = None
 
@@ -518,6 +531,8 @@ def main() -> int:
             rule_fix=np.asarray(cols["rule_fix"], dtype=int),
             hyst_fix=np.asarray(cols["hyst_fix"], dtype=int),
             carry_fwd=np.asarray(cols["carry_fwd"], dtype=int),
+            pos_src=np.asarray(cols["pos_src"], dtype=int),
+            pre_af_xyz=np.asarray(cols["pre_af_xyz"], dtype=float),
             rb_wl_n=np.asarray(cols["rb_wl_n"], dtype=int),
             rb_wl_ratio=np.asarray(cols["rb_wl_ratio"], dtype=float),
             rb_wl_rms=np.asarray(cols["rb_wl_rms"], dtype=float),
@@ -565,7 +580,7 @@ def main() -> int:
         if old_ne.size > 0:
             for k in cols:
                 if k in ("ecef", "witness_xyz", "flt_xyz", "trk_map_xyz",
-                         "trk_mix_xyz"):
+                         "trk_mix_xyz", "pre_af_xyz"):
                     source = "sol_xyz" if k == "ecef" else k
                     if source in old.files:
                         cols[k] = [row.copy() for row in np.asarray(old[source])]
@@ -589,6 +604,8 @@ def main() -> int:
                         cols[k] = [np.full(shape_, np.nan) for _ in old_ne]
                 elif k in old.files:
                     cols[k] = list(np.asarray(old[k]).reshape(-1))
+                elif k == "pos_src":    # pre-WP55 checkpoint
+                    cols[k] = [0] * old_ne.size
                 else:   # pre-WP18 checkpoint: nan-backfill new diagnostics
                     cols[k] = [float("nan")] * old_ne.size
             for i in range(old_ne.size):
@@ -885,6 +902,21 @@ def main() -> int:
                 # WP52: hold the carried integers in the shared graph
                 fb_on = carried or (carry_fb >= 2 and hyst_ok)
                 rtk.rbpf.carry_feedback(rtk, carrier.state if fb_on else None)
+        cols["pre_af_xyz"].append(np.asarray(ecef, dtype=float).copy())
+        pos_src = 0
+        if af_sel is not None:
+            # WP55: causal ambiguity-fit choice of the reported position
+            cand = [ecef, flt_ecef, cols["trk_map_xyz"][-1],
+                    cols["trk_mix_xyz"][-1]]
+            pos_src = af_sel.step(
+                out.get("carry_rows") if out is not None else None,
+                out.get("rows_pos0") if out is not None else None,
+                cand, not rule_ok)
+            if pos_src:
+                ecef = np.asarray(cand[pos_src], dtype=float)
+                cols["ecef"][-1] = ecef
+                cols["err3d"][-1] = _err(ecef)
+        cols["pos_src"].append(pos_src)
         cols["hyst_fix"].append(int(hyst_ok))
         cols["carry_fwd"].append(int(carried))
         cols["rule_fix"].append(int(rule_ok))
