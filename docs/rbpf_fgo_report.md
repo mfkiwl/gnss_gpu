@@ -1,8 +1,8 @@
 # RB-FGO-PF technical report: integer-ambiguity particle filtering on a shared factor graph
 
-Status as of WP57 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
+Status as of WP58 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-055 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-056 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -439,6 +439,24 @@ benchmark record:
   recovers its 3-minute failure within 20 s but costs 13 pp correct FIX
   elsewhere in the run. Dropping satellites' arc-end epochs was not tried:
   the forward data show no worse residuals there.
+- **FIX entry on fewer pairs (WP58).** A second entry branch, at least
+  8 / 10 / 12 MAP pairs above 0.99 held for 1 s, adds 2–4 pp on average
+  (Nagoya 3 5–11 pp) but marks 4.6–13.5% of Nagoya 2's fixes wrong.
+  Required for 5 s or longer, it adds at most 0.1 pp forward (0.8 pp
+  backward): so few pairs rarely agree that long. The label side has no safe headroom left.
+- **Carrier of one-band satellites (WP58).** In the unfixed epochs with a
+  correct position, Tokyo 1 has a median of 5 satellites that carry only
+  one band and are used for code only. Counting their carrier would lift
+  the share of those epochs with 15+ pairs from 9% to 49%.
+  - **All one-band carriers** (seed 20260710): correct FIX falls on all four
+    runs tried, for example Tokyo 1 63.2 → 57.2% and Nagoya 3 32.0 → 15.1%
+    (float within 0.5 m 69.7 → 18.6%). Nagoya 2 reaches 2.1% wrong.
+  - **Why.** At truth those carriers are off an integer by more than 0.25
+    cycle on 32–42% of epochs, against 7–24% for two-band ones. They jump
+    integer 5–11 times as often (no dual-band slip check is possible).
+  - **Only those at 40 dB-Hz or more.** Nagoya 3 PPC OFFICIAL rises 82.7 →
+    87.9%. But correct FIX still falls (Tokyo 1 63.2 → 58.7%), Tokyo 1
+    OFFICIAL falls 86.1 → 79.7%, and Nagoya 2 has 2.05% wrong.
 - **No FIX entry while parked (WP53).** Parked epochs are 33–55% of each run;
   vetoing entry there costs Nagoya 5–15 pp and leaves Nagoya 2's wrong
   basin, which is chosen during a stop but labelled after the vehicle
@@ -465,7 +483,22 @@ benchmark record:
   stretches where the code-only position is 2–10 m off and carrier slips are
   frequent. Tokyo 1 has ~25% of its epochs in one such stretch, Nagoya 2
   ~35%, Nagoya 3 ~50%. The integer carry ends there because too few pairs
-  stay consistent.
+  stay consistent. Where the real-time epochs go (WP56 label, WP55
+  positions, 3 seeds, % of rover epochs):
+
+  | | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+  |---|---:|---:|---:|---:|---:|---:|
+  | FIX, correct | 62.9 | 82.2 | 78.6 | 70.5 | 52.0 | 30.8 |
+  | unfixed, reported position within 0.5 m | 22.6 | 10.5 | 17.5 | 16.4 | 8.5 | 46.3 |
+  | unfixed, float within 0.5 m but reported position not | 0.9 | 0.8 | 0.6 | 1.1 | 0.4 | 1.8 |
+  | unfixed, both off, outage or fewer than 4 carrier pairs | 4.0 | 3.8 | 2.0 | 6.0 | 9.6 | 8.4 |
+  | unfixed, both off with 4+ carrier pairs | 9.6 | 2.8 | 1.3 | 5.4 | 29.4 | 12.8 |
+
+  The second row is not lost FIX. Those epochs have 9–13 carrier pairs
+  (FIX epochs: 24–40), only 0–6 of them above 0.99 agreement, and mostly
+  5–50 cm errors: float quality, below the 15 pairs the entry needs.
+  WP58 (below) found no safe way to fix them. Nagoya 2 loses most to float
+  errors with carrier pairs present (multipath and no line of sight).
 - **Nagoya 2.** A self-consistent basin about 0.95 m off (556831–556862 s)
   remains the main source of wrong fixes. The backward pass falls into it
   too. Most of its position loss is one 6.5-minute stretch (555966–556367 s)
@@ -488,6 +521,10 @@ benchmark record:
    existing sanity reset costs more than it recovers.
 3. Breaking Nagoya 2's wrong basin, which neither time direction, wide-lane,
    more particles nor the float check separate from the true one.
+4. Usable carrier pairs in narrow streets. One-band carriers are too poor
+   (WP58). GLONASS would need inter-frequency bias handling, because the
+   bases are Trimble (Alloy, NetR9) and the rover is a Septentrio
+   mosaic-X5.
 
 ## Reproduction
 
