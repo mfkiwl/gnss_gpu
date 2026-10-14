@@ -1203,6 +1203,7 @@ class GtsamRtk(rtkpos):
                 self._los_tracer = GridTracer(_z['triangles'])
             self.nlos_enable = 1
         self.nlos_meas_sigma_mult = float(os.environ.get('NLOS_MEAS_SIGMA_MULT', '5.0'))
+        self.nlos_hybrid_min_los = int(os.environ.get('NLOS_HYBRID_MIN_LOS', '6'))
         # Fraction of this epoch's ACTIVE candidates that must be
         # NLOS-flagged before the whole-epoch Q=4 report is refused (layer
         # (c), second half). Default 0.5 = strict majority; 0.0 = refuse
@@ -4852,6 +4853,13 @@ class GtsamRtkTc(GtsamRtk):
         if self._los_tracer is not None and self.nlos_meas_mode:
             self._nlos_online_update(obs, rs, sat, iu, pos_pred_ecef)
         nlos_sats = self._get_nlos_sats(obs) if self.nlos_meas_mode else frozenset()
+        # WP60 NLOS_MEAS_MODE=3: hard-exclude NLOS pairs while at least
+        # NLOS_HYBRID_MIN_LOS satellites stay line-of-sight, else only
+        # inflate them (exclusion alone left too few rows in canyons)
+        nlos_mode = self.nlos_meas_mode
+        if nlos_mode == 3:
+            n_los = sum(1 for s_ in sat if int(s_) not in nlos_sats)
+            nlos_mode = 1 if n_los >= self.nlos_hybrid_min_los else 2
 
         # WP13s literal: tc/'s `_reset_persistently_failing_n` runs at
         # the START of every DD build (buildfactor/factors.py builder
@@ -4922,7 +4930,7 @@ class GtsamRtkTc(GtsamRtk):
                     if obs_sd.P[ri, f] == 0 or obs_sd.P[ji, f] == 0:
                         continue
 
-                    if self.nlos_meas_mode == 1 and pair_nlos:
+                    if nlos_mode == 1 and pair_nlos:
                         # hard-exclude: skip this pair/freq entirely (no PR,
                         # no CP, no ambiguity seed) this epoch.
                         continue
@@ -4933,7 +4941,7 @@ class GtsamRtkTc(GtsamRtk):
                     rsb_j = gtsam.Point3(*rsb[ir[ji], :3])
 
                     pr_sigma_mult = (self.nlos_meas_sigma_mult
-                                      if (self.nlos_meas_mode == 2 and pair_nlos) else 1.0)
+                                      if (nlos_mode == 2 and pair_nlos) else 1.0)
                     if pr_sigma_mult != 1.0:
                         self.nlos_meas_pr_affected += 1
 
@@ -5271,7 +5279,7 @@ class GtsamRtkTc(GtsamRtk):
                                     new_amb):
                                 continue
                         cp_sigma_mult = (self.nlos_meas_sigma_mult
-                                          if (self.nlos_meas_mode == 2 and pair_nlos) else 1.0)
+                                          if (nlos_mode == 2 and pair_nlos) else 1.0)
                         if cp_sigma_mult != 1.0:
                             self.nlos_meas_cp_affected += 1
                         cp_sigma_mult *= _lit_mult
