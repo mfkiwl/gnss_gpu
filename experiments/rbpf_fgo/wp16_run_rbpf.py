@@ -742,6 +742,19 @@ def main() -> int:
         week, tow = gn.time2gpst(obs.t)
         tow_t = _true_tow(tow)      # true time (== tow unless --reverse)
         dr_ecef = None
+        # WP59 P2_IMU_ONLY: a committed epoch without GNSS rows is reported
+        # like a DR epoch, from the last reported position plus the graph's
+        # (NHC-constrained) antenna motion since then
+        imu_only = updated and bool(getattr(rtk, '_last_imu_only', False))
+        if imu_only and last_rep is not None and tow - last_rep[2] <= args.dr_max_s:
+            try:
+                _ant = rtk._antenna_ecef(rtk.current_estimate.atPose3(
+                    rtk.PX(rtk.last_valid_epoch)))
+                dr_ecef = last_rep[0] + (_ant - last_rep[1])
+                if not np.all(np.isfinite(dr_ecef)):
+                    dr_ecef = None
+            except RuntimeError:
+                dr_ecef = None
         if not updated:
             if not (args.dr_fill and last_rep is not None
                     and tow - last_rep[2] <= args.dr_max_s):
@@ -762,7 +775,7 @@ def main() -> int:
             smode = 4 if out['fix'] else 5
         else:
             ecef, smode = flt_ecef, 5
-        if (updated and (args.dr_fill or args.gap_fill)
+        if (updated and not imu_only and (args.dr_fill or args.gap_fill)
                 and getattr(rtk, 'phase', 1) == 2
                 and rtk.current_estimate is not None):
             try:
@@ -1053,7 +1066,8 @@ def main() -> int:
 
     print(f"Motion factors (phase-2 epochs): Doppler velocity "
           f"{getattr(rtk, '_doppler_fire_count', 0)} (low-sat "
-          f"{getattr(rtk, '_doppler_lowsat_count', 0)}), NHC "
+          f"{getattr(rtk, '_doppler_lowsat_count', 0)}), IMU-only epochs "
+          f"{getattr(rtk, 'imu_only_count', 0)}, NHC "
           f"{getattr(rtk, '_nhc_fire_count', 0)}, ZUPT "
           f"{getattr(rtk, '_zupt_fire_count', 0)}, phase-2 epochs "
           f"{getattr(rtk, 'epoch2', 0)}")

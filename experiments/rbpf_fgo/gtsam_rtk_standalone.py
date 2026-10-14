@@ -3727,6 +3727,13 @@ class GtsamRtkTc(GtsamRtk):
         self.phase1_epochs = int(os.environ.get('PHASE1_EPOCHS', '40'))
         # WP59: fewest common satellites a phase-2 epoch is committed with
         self.p2_min_ns = int(os.environ.get('P2_MIN_NS', '6'))
+        # WP59: P2_IMU_ONLY=1 commits an epoch that would be abandoned (no
+        # DD build, too few satellites, or fewer than 4 DD rows) with the
+        # IMU factor, NHC/ZUPT and whatever DD rows it has, instead of
+        # skipping it; such epochs skip AR, sanity, FDE and the PF step
+        self.p2_imu_only = int(os.environ.get('P2_IMU_ONLY', '0'))
+        self._last_imu_only = False
+        self.imu_only_count = 0
         self._phase1_hist = []  # [(obs.t, ecef), ...] committed Phase-1 epochs
 
         lever_str = os.environ.get('LEVER_ARM', '0.31,0,0.55')
@@ -6149,6 +6156,71 @@ class GtsamRtkTc(GtsamRtk):
                 self._fix_streak[key] = 0
             self._tc_literal_release_suspicious_held()
 
+    def _commit_imu_only(self, obs, prev_ep, prev_vel, prev_bias, pim,
+                         pose_pred, vel_pred, gyro_mean, idx_snapshot,
+                         new_idx):
+        """WP59 (P2_IMU_ONLY=1): commit this epoch from the IMU factor,
+        the bias random walk and the NHC/ZUPT motion factors alone (no
+        GNSS rows), so the next epochs start from an NHC-constrained
+        state instead of a pure IMU prediction from the last GNSS epoch.
+        Ambiguity keys are re-stamped so they stay in the lag window.
+        Skips AR, sanity, FDE and the PF step; `_last_imu_only` tells
+        the caller the committed position carries no GNSS information."""
+        ep = self.epoch2
+        key_x, key_v, key_b = self.PX(ep), self.PV(ep), self.PB(ep)
+        graph = gtsam.NonlinearFactorGraph()
+        new_values = gtsam.Values()
+        new_values.insert(key_x, pose_pred)
+        new_values.insert(key_v, vel_pred)
+        new_values.insert(key_b, prev_bias)
+        graph.add(gtsam.CombinedImuFactor(
+            self.PX(prev_ep), self.PV(prev_ep), key_x, key_v,
+            self.PB(prev_ep), key_b, pim))
+        graph.add(gtsam.BetweenFactorConstantBias(
+            self.PB(prev_ep), key_b,
+            gtsam.imuBias.ConstantBias(np.zeros(3), np.zeros(3)),
+            self._bias_between_noise()))
+        if self.bias_prior_mode == 1:
+            graph.addPriorConstantBias(key_b, self.tc_bias_init, self._bias_prior_noise())
+        elif self.bias_prior_mode == 2:
+            graph.addPriorConstantBias(key_b, prev_bias, self._bias_prior_noise())
+        speed_for_nhc = float(np.linalg.norm(prev_vel[:2]))
+        self._add_nhc_factor(
+            graph, ep, speed_for_nhc, gyro_mean, prev_bias.gyroscope())
+        self._zupt_check_and_add(graph, ep, prev_ep,
+                                 self.imu_data[idx_snapshot:new_idx])
+        self.imu_idx = new_idx
+        try:
+            if self.smoother:
+                ts = gtsam.FixedLagSmootherKeyTimestampMap()
+                ts[key_x] = self.epoch_time
+                ts[key_v] = self.epoch_time
+                ts[key_b] = self.epoch_time
+                if not self.per_epoch_n:
+                    for (_s, _f), k in _sorted_amb_items(self.amb_keys):
+                        ts[k] = self.epoch_time
+                self.smoother.update(graph, new_values, ts)
+                estimate = self.smoother.calculateEstimate()
+            else:
+                self.isam.update(graph, new_values)
+                self.isam.update()
+                estimate = self.isam.calculateEstimate()
+            self.current_estimate = estimate
+        except (RuntimeError, IndexError):
+            self.imu_idx = idx_snapshot
+            self.epoch2 += 1
+            self.nav.t = obs.t
+            return
+        self.last_valid_epoch = ep
+        self.last_valid_time = obs.t
+        self._write_back_tc(estimate, key_x, set())
+        self.nav.smode = 5
+        self._last_imu_only = True
+        self.imu_only_count += 1
+        self.nav.t = obs.t
+        self.epoch2 += 1
+        self.epoch_time += 1.0
+
     def _process_phase2(self, obs, obsb):
         """Phase-2 per-epoch update (TASK_M5.md items 2-3): CombinedImuFactor
         chain (preintegrated via tc/'s `build_pim`, reused directly) +
@@ -6186,7 +6258,12 @@ class GtsamRtkTc(GtsamRtk):
         prep = self.prepare_double_difference_measurements(
             obs, obsb, pos_pred=pos_pred_ecef, cs=None, orb=None, bsx=None,
             compute_zdres=False)
+        self._last_imu_only = False
         if prep is None:
+            if self.p2_imu_only:
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
@@ -6290,6 +6367,10 @@ class GtsamRtkTc(GtsamRtk):
         # phase-2 epoch is committed with; fewer abandons the epoch (the
         # next committed epoch re-integrates the IMU across it)
         if ns < self.p2_min_ns or _gdop_bad:
+            if self.p2_imu_only:
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
@@ -6359,6 +6440,13 @@ class GtsamRtkTc(GtsamRtk):
         if nv < 4:
             if os.environ.get('DEBUG_EXC'):
                 print("DEBUG(TC) nv<4", ep, nv, "amb_keys=", len(self.amb_keys))
+            if self.p2_imu_only:
+                # the DD build may have seeded ambiguity keys: start the
+                # IMU-only graph afresh (its own IMU factor) and leave the
+                # few DD rows out
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
