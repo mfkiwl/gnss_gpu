@@ -384,6 +384,8 @@ def main() -> int:
         import reverse_time as rtime
         os.environ['RBPF_REVERSE'] = '1'
         os.environ.setdefault('PHASE1_STUCK_N', '5')
+        # WP57: take the IMU bias from a parked window, not the run's end
+        os.environ.setdefault('IMU_STATIC_SEARCH', '1')
         if not any(kv.startswith('PHASE1_EPOCHS=') for kv in args.env):
             # a 20 s GNSS-only bootstrap (forward: 40 s); runs mostly end
             # parked, so the backward PF starts 20 s earlier

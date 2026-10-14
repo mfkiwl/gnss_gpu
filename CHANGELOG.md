@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP57** (`experiments/rbpf_fgo/`): the backward pass takes the
+  IMU bias from the first parked 5 s window (`IMU_STATIC_SEARCH=1`, set by
+  `--reverse`) instead of the run's last 5 s. Tokyo 3 ends mid-turn, and the
+  backward gyro bias had come out 4.5 deg/s off for the whole run. Backward
+  Tokyo 3: graph float within 0.5 m 52.1 → 93.6%, correct FIX 59.9 → 80.0%.
+  Post-processed PPC OFFICIAL 92.1 / 95.6 / 95.2 / 79.5 / 64.3 / 90.9%, mean
+  86.3% (WP56: 85.9%). Forward runs unchanged. This also corrects WP56's
+  evidence: its 5.3% backward Tokyo 3 wrong share came from this bug; the
+  check is still justified by backward Nagoya 1 (1.23 → 0.04%).
 - **RB-FGO-PF WP56** (`experiments/rbpf_fgo/`, new default
   `RBPF_SHIP=wp56`): `--fix-flt-max 0.5` withholds the FIX label while the
   reported position is more than 0.5 m from the shared graph's float (the
