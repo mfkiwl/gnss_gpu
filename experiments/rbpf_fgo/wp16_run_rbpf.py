@@ -161,18 +161,25 @@ def _override_bands(sigs, sigsb, sig_map_rov, sig_map_base, spec, nf,
     return sigs, sigsb
 
 
-def _rule_fix(rule, out, cols, ecef, flt_ecef, guard_m=5.0):
+def _rule_fix(rule, out, cols, ecef, flt_ecef, guard_m=5.0, flt_max=0.0):
     """WP45 causal FIX label for this epoch (fix_rule_loro.apply on one
     row): PF agreement counts, the non-empty agreement with its mass, or
     the shared filter's own LAMBDA fix, behind the PF output guards
     (reported position within guard_m of the code-only DDPR position and
-    the float / DDPR / fix vote 6 m / 3.5 m)."""
+    the float / DDPR / fix vote 6 m / 3.5 m). WP56: flt_max > 0 also vetoes
+    the label while the reported position is more than flt_max from the
+    shared graph's float."""
     t, f, t2, f2, m, b = rule[:6]
     # optional 7th field (WP48): veto every label while the PF's code-only
     # DDPR quality exceeds Q (fix_rule_loro.py --guards `qmax`)
     if len(rule) > 6 and rule[6] < 99:
         q_ = cols["rb_ddpr_qual"][-1]
         if np.isfinite(q_) and q_ > rule[6]:
+            return False
+    if flt_max > 0:
+        d_ = float(np.linalg.norm(np.asarray(ecef, dtype=float)
+                                  - np.asarray(flt_ecef, dtype=float)))
+        if d_ > flt_max:
             return False
     base_fix = cols["base_smode"][-1] == 4 and cols["base_nb"][-1] >= b
     pf = False
@@ -267,6 +274,11 @@ def main() -> int:
                          "FIX once --fix-rule held L consecutive epochs, then "
                          "while this continuation rule holds (bridging G "
                          "failed epochs)")
+    ap.add_argument("--fix-flt-max", type=float, default=0.0,
+                    help="WP56: veto the --fix-rule / --fix-hyst label while "
+                         "the reported position is more than this [m] from "
+                         "the shared graph's float (the forward integer "
+                         "carry is not vetoed). 0 = off")
     ap.add_argument("--carry", type=int, default=0,
                     help="WP50 forward integer carry (needs RBPF_CARRY=1): "
                          "an epoch the label leaves unfixed is labelled FIX "
@@ -873,11 +885,13 @@ def main() -> int:
                        ("rb_shadow_n", "shadow_n")):
             cols[k].append(float(out.get(ok_, float("nan")))
                            if out is not None else float("nan"))
-        rule_ok = (_rule_fix(fix_rule, out, cols, ecef, flt_ecef)
+        rule_ok = (_rule_fix(fix_rule, out, cols, ecef, flt_ecef,
+                             flt_max=args.fix_flt_max)
                    if fix_rule is not None and smode != 6 else False)
         hyst_ok = rule_ok
         if hyst is not None:
-            cont_ok = (_rule_fix(hyst_rule, out, cols, ecef, flt_ecef)
+            cont_ok = (_rule_fix(hyst_rule, out, cols, ecef, flt_ecef,
+                                 flt_max=args.fix_flt_max)
                        if smode != 6 else False)
             hyst_ok = hyst.update(tow, rule_ok, cont_ok)
             rule_ok = hyst_ok

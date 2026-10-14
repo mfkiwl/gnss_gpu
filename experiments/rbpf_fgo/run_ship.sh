@@ -3,9 +3,9 @@
 # output layer + the WP45 satellite set, basin persistence and FIX label
 # rule, made stricter in WP46; WP47 one-band code-only satellites, 10 deg
 # mask and a re-selected rule; WP48 measurement model; WP50 hysteresis label
-# and integer carry; WP55 ambiguity-fit choice of unfixed positions) on one
-# PPC run (PPC_CITY=tokyo | nagoya).
-# RBPF_SHIP=wp50 / wp48 / wp47 / wp46 / wp45 / wp43 reproduce the earlier releases;
+# and integer carry; WP55 ambiguity-fit choice of unfixed positions; WP56
+# float-consistency veto on the label) on one PPC run (PPC_CITY=tokyo | nagoya).
+# RBPF_SHIP=wp55 / wp50 / wp48 / wp47 / wp46 / wp45 / wp43 reproduce the earlier releases;
 # RBPF_SHIP=wp18 is equivalent to repro_tc_fgo/results/wp18/run_rbpf18.sh.
 #
 #   PPC_DATA_ROOT=.../PPC-Dataset-data/tokyo \
@@ -29,7 +29,7 @@ GUARDS="--env RBPF_FIX_VOTE_DD=6.0 --env RBPF_FIX_VOTE_DPR=3.5 --env RBPF_FB_COM
 # position and the dead-reckoned gap fill. RBPF_SHIP=wp18 reproduces the
 # WP18 output (FIX decisions are the same either way).
 WP43="--dr-fill 1 --env RBPF_TRACK=2 --env RBPF_TRACK_EMPTY=1 --env RBPF_TRACK_OUT=2"
-SHIP="${RBPF_SHIP:-wp55}"
+SHIP="${RBPF_SHIP:-wp56}"
 if [ "$SHIP" = "wp18" ]; then WP43=""; fi
 # WP45 (2026-10-12): every satellite with two usable bands (--nf 3 made
 # cssrlib's qcedit drop any satellite without L5), BeiDou B1I+B3I instead
@@ -53,6 +53,9 @@ if [ "$SHIP" = "wp18" ]; then WP43=""; fi
 # 6+ pairs agree above 0.90) and a forward integer carry through epochs the
 # label leaves unfixed. The row dump (runN_rows.npz) also feeds
 # integer_smoother.py, the 15 s fixed-lag backward carry.
+# WP56 (2026-10-14): no FIX label while the reported position is more than
+# 0.5 m (the correct-FIX tolerance) from the shared graph's float; the
+# integer carry is not vetoed.
 WP45=""
 if [ "$SHIP" = "wp45" ]; then
   WP45="--nf 2 --band-priority C:2,6;R:- --env RBPF_KEEP=1 --fix-rule 3,5,3,12,0.1,5"
@@ -68,7 +71,7 @@ elif [ "$SHIP" = "wp48" ]; then
   WP45="$WP45 --env QC_BASE_MASK=1 --env ELMIN_DEG=10.0"
   WP45="$WP45 --env HUBER_PR=1.345 --env HUBER_CP=2.0 --env PR_CNR_ERR=0.5"
   WP45="$WP45 --env DOP_V2=1 --env DOPPLER_LEVER_COMP=1 --env DOP_COV_SCALE=1.5"
-elif [ "$SHIP" = "wp50" ] || [ "$SHIP" = "wp55" ]; then
+elif [ "$SHIP" = "wp50" ] || [ "$SHIP" = "wp55" ] || [ "$SHIP" = "wp56" ]; then
   WP45="--nf 2 --band-priority C:2,6;R:- --env RBPF_KEEP=1 --fix-rule 5,15,5,15,0.1,5,1.0"
   WP45="$WP45 --env QC_ANY_BAND=1 --env QC_ANY_BAND_CODE_ONLY=1 --env QC_ANY_BAND_PR_SCALE=10"
   WP45="$WP45 --env QC_BASE_MASK=1 --env ELMIN_DEG=10.0"
@@ -76,7 +79,9 @@ elif [ "$SHIP" = "wp50" ] || [ "$SHIP" = "wp55" ]; then
   WP45="$WP45 --env DOP_V2=1 --env DOPPLER_LEVER_COMP=1 --env DOP_COV_SCALE=1.5"
   WP45="$WP45 --fix-hyst 5,2,2,6,2,6,0.1,5 --env RBPF_CARRY=1 --carry 1 --env RBPF_DUMP_ROWS=1"
   # WP55: causal ambiguity-fit choice of the reported position on unfixed epochs
-  if [ "$SHIP" = "wp55" ]; then WP45="$WP45 --af-select 6"; fi
+  if [ "$SHIP" != "wp50" ]; then WP45="$WP45 --af-select 6"; fi
+  # WP56: float-consistency veto on the label
+  if [ "$SHIP" = "wp56" ]; then WP45="$WP45 --fix-flt-max 0.5"; fi
 fi
 # PPC_CITY=nagoya: the Nagoya GNSS antenna lever arm (README, IMU FRD
 # 0.593,-0.670,-1.216 m) as the runner's body FLU vector
@@ -89,7 +94,7 @@ R1FLAGS=""
 # post-reset carrier-phase hold); RBPF_R1FLAGS=0 drops them. WP45 runs one
 # configuration on every run (with the sanity reset on run1 it scores
 # within the seed spread: 67.1 vs 66.6% correct FIX); so do WP46/WP47.
-if [ "$RUN" = "1" ] && [ "${RBPF_R1FLAGS:-1}" != "0" ] && [ "$SHIP" != "wp45" ] && [ "$SHIP" != "wp46" ] && [ "$SHIP" != "wp47" ] && [ "$SHIP" != "wp48" ] && [ "$SHIP" != "wp50" ] && [ "$SHIP" != "wp55" ]; then
+if [ "$RUN" = "1" ] && [ "${RBPF_R1FLAGS:-1}" != "0" ] && [ "$SHIP" != "wp45" ] && [ "$SHIP" != "wp46" ] && [ "$SHIP" != "wp47" ] && [ "$SHIP" != "wp48" ] && [ "$SHIP" != "wp50" ] && [ "$SHIP" != "wp55" ] && [ "$SHIP" != "wp56" ]; then
   R1FLAGS="--sanity-enable 1 --env SANITY_PR_ONLY=1 --env RECOV_CP_HOLD_EPOCHS=5 --env RECOV_CP_RELEASE_THRESH=2.0 --env RECOV_CP_RELEASE_COUNT=5 --env SANITY_MAX_MEDIAN_RATIO=5.0"
 fi
 mkdir -p "$HERE/results"
