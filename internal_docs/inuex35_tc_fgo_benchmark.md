@@ -1231,6 +1231,108 @@ Tokyo 1 positions get worse.
 Alloy, Nagoya NetR9) and the rover a Septentrio mosaic-X5, so integer
 GLONASS ambiguities would need inter-frequency bias handling.
 
+### WP59 (2026-10-14): real-time ensemble of forward runs (map-free)
+
+**Goal.** Beat the PPC2024 winner (TURING, 85.6% private) under the
+challenge rules: real time, no future observations. PPC OFFICIAL as in
+`rt_ensemble.py` (distance share within 0.5 m, missing epochs failing).
+
+**Loss anatomy first** (3-seed ensemble, AF choice, 82.95%; pp of run
+distance, mean over runs): no output 0.49, dead reckoning 2.12, fewer than
+5 DD satellites 5.86, 5+ satellites 8.58. By error type: height only 3.67,
+horizontal 0.5–3 m 9.66, over 3 m 3.22. Height-only losses are mostly high
+(median +0.46 to +1.02 m). Nagoya 2 loses 21.2 pp of its distance in one
+375 s canyon stretch (555996–556371 s, 2–7 satellites).
+
+**Members** (all real time, same epochs): WP56 seeds 20260710–12 (`af56*`)
+and the one-band carrier variant at 40 dB-Hz, seed 20260710 (`w58b_*`,
+`QC_ANY_BAND_CODE_ONLY=0 QC_ANY_BAND_CP_CNR=40`).
+
+| PPC OFFICIAL, real time | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| WP56 one run (3-seed mean) | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.61 |
+| 3 seeds, AF choice | 85.7 | 93.8 | 92.2 | 78.2 | 59.7 | 88.2 | 82.95 |
+| + one-band member | 85.9 | 93.9 | 93.0 | 78.6 | 62.1 | 89.1 | 83.76 |
+| learned choice (LORO) | 86.3 | 94.9 | 93.3 | 79.3 | 61.1 | 90.2 | 84.19 |
+| + height bias (LORO), rover-gap rows | 86.9 | 95.8 | 93.7 | 80.2 | 61.1 | 90.4 | **84.69** |
+
+- **Learned choice.** HistGradientBoosting on 46 causal features per
+  candidate (AF over 1/3/6/12/30 epochs and relative to the best / member 0,
+  FIX flags, PF state, agreement counts within 0.1/0.3/0.6 m, distance to
+  the median / member 0 / float / fixing members, step jump, time since the
+  last FIX), trained on the other five runs (epochs where candidates
+  disagree, distance-weighted). Oracle over the same 16 candidates: 87.8%.
+- **Height bias.** Every LORO fold picks 0.10 or 0.15 m (grid 0–0.3 m).
+- **Time halves** (each run split at its middle epoch, 84.69% row): 82.4 /
+  88.1%. TURING 78.7 / 85.6 (public / private); all three top teams scored
+  higher on private.
+- **FIX label** (2+ map-free members fixed within 0.2 m of the output):
+  62.7 / 82.1 / 77.7 / 70.0 / 52.0 / 31.8% correct, at most 0.04% wrong.
+  Any single member's label: Nagoya 2 1.77% wrong.
+
+**Rejected** (seed 20260710 unless stated):
+- `P2_MIN_NS=4` (commit epochs with 4–5 common satellites): Nagoya 1 first
+  1,400 epochs 59.1 → 60.4%, full run 76.5 → 75.5% (one 20 s block −1.0 pp,
+  PF spread); Tokyo 1 85.7 → 85.4%. As a fifth member +0.1 / +0.4 pp.
+- `P2_IMU_ONLY=1` (commit GNSS-less epochs from IMU, NHC, ZUPT): 58.3% on
+  those 1,400 epochs.
+- `DOP_LOWSAT_SIG=0.1` (Doppler from 2–4 satellites): 3 firings in 1,400
+  epochs.
+- `--gap-fill` alone: Tokyo 1 +0.3 pp, Nagoya 1 0 (anchor 4 s stale).
+- FIX-offset carry: −0.2 to +0.07 pp; medoid / median choice: 81.7 /
+  82.1% (AF 83.76%); AF + agreement bonus: 83.87%.
+
+### WP60 (2026-10-14): PLATEAU NLOS traced from the predicted position (map-aided)
+
+**Data.** PLATEAU CityGML (Tokyo 23 wards 2022, Nagoya 2022) building and
+bridge tiles along each run, fetched by range requests
+(`experiments/fetch_plateau_subset.py --mesh-radius 1 --include-bridges`):
+Tokyo 0.75–1.2 GB of GML per run, Nagoya 0.6–0.7 GB (no bridge tiles). Heights to
+the ellipsoid with EGM96 over each run (Tokyo 36.2–36.4 m, Nagoya
+37.2–37.3 m). 2.2–3.6 M triangles per Tokyo run.
+
+**Tracer.** `plateau_los.py`: 8 m grid, per-cell triangle lists and top
+heights, 2D DDA, Moller-Trumbore, numba; surfaces within 3 m ignored (bridge
+decks: Tokyo 2 zenith blocked on 1,354 of 9,151 epochs, 7 with buildings
+only, 854 with the 3 m rule, at 7–13 m above the antenna). NLOS share of
+satellite-epochs (masks traced from the first-pass track): 27–40% (Tokyo
+2 and 3: 27%). Nagoya 2's canyon: 14–22 of 24–30 satellites.
+
+**Filter.** `NLOS_ONLINE=1` (trace from the IMU-predicted antenna position
+each epoch), `NLOS_MEAS_MODE=3` (exclude NLOS pairs while 6+ satellites stay
+LOS, else 5x sigma), `NLOS_REF_LOS=1`. Mask from a first map-free pass's
+positions, excluding (`nl1`) or inflating (`nl2`): Nagoya 2 59.1 / 59.2%
+(single run 58.5%); excluding cost 2.4 pp of Tokyo 1's first 4,500 epochs.
+
+| One run, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| PPC OFFICIAL, WP56 | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.61 |
+| PPC OFFICIAL, WP60 | 90.0 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.39 |
+| correct FIX, WP60 (`score_label.py`) | 61.3 | 80.2 | 80.3 | 71.6 | 45.2 | 25.5 | |
+| wrong / FIX, WP60 (worst seed) | 0.07 (0.10) | 0.02 (0.03) | 0.01 (0.02) | 0.01 (0.04) | 5.84 (7.06) | 0.00 (0.00) | |
+
+Tokyo 1's +3.8 pp (seed 20260710) sits in one stretch, 189530–189610 s:
+WP56 1.3–6 m off, WP60 0.1–0.4 m. Nagoya 2's wrong fixes are one 48 s
+stretch (556816–556864 s), the known 0.95 m basin, now with the float
+equally off (0.93 m), so the WP56 float check does not fire.
+
+| Ensemble, PPC OFFICIAL, real time | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| WP59 (4 map-free runs), learned, height, gaps | 86.9 | 95.8 | 93.7 | 80.2 | 61.1 | 90.4 | 84.69 |
+| + WP60 seed 20260710 | 91.7 | 96.5 | 94.4 | 81.7 | 62.1 | 90.3 | 86.13 |
+| + WP60 3 seeds, AF choice | 90.9 | 94.8 | 93.5 | 80.6 | 62.1 | 90.5 | 85.41 |
+| **+ WP60 3 seeds, learned choice** | 92.2 | 96.2 | 94.4 | 81.6 | 62.1 | 91.0 | **86.25** |
+| WP60 3 seeds + one-band member only | 91.8 | 96.2 | 94.1 | 81.0 | 62.1 | 91.0 | 86.05 |
+
+Time halves of the 86.25% row: 83.3 / 90.3%. FIX label (map-free members
+only): 62.0 / 82.3 / 77.8 / 70.0 / 52.0 / 31.4%, at most 0.06% wrong.
+Nagoya 2's canyon: no candidate of the 28 within 0.5 m on more than 0.2 of
+its 21.2 pp (best candidate median 2.35 m).
+
+**Operational note.** The cloud container was reclaimed while idle and
+killed the running members; long runs need a live watcher.
+
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

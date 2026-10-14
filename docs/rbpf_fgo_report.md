@@ -428,8 +428,8 @@ WP56 in three settings:
   bridge (Tokyo 2: zenith blocked on 1,354 of 9,151 epochs; 7 with buildings
   only). An antenna that looks enclosed keeps the previous epoch's set.
 
-36% of Tokyo 1's satellite-epochs are NLOS (Nagoya 2: 35%). In Nagoya 2's
-375 s street canyon 14–22 of 24–30 satellites are NLOS.
+27–40% of the satellite-epochs are NLOS (Tokyo 1: 36%, Nagoya 2: 35%). In
+Nagoya 2's 375 s street canyon 14–22 of 24–30 satellites are NLOS.
 
 ## How the results moved
 

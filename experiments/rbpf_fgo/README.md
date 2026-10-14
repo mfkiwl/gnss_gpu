@@ -220,6 +220,25 @@ On Linux (Ubuntu 24.04, Python 3.12, 4 cores, 16 GB) `setup_deps.sh` builds
 the GTSAM stage when the compile is limited to two jobs
 (`CMAKE_BUILD_PARALLEL_LEVEL=2`); four jobs ran out of memory.
 
+## WP59–WP60 additions (2026-10-14)
+
+Real-time ensemble and PLATEAU NLOS. All options default off; the shipped
+WP56 output is unchanged.
+
+| option / file | effect |
+|---|---|
+| `rt_ensemble.py` | scores an ensemble of forward runs on the same epochs the PPC2024 way: per epoch a member's candidate (reported, float, MAP, mixture) chosen by the WP55 ambiguity-fit rule (`--select af`) or a classifier trained leave-one-run-out (`--select learned`); `--shift` lowers unfixed outputs by a height bias chosen leave-one-run-out; `--gaps` adds rover-gap rows; `--label-members` gives the ensemble FIX label (2+ of them fixed within 0.2 m). Needs a seed-20260710 row dump (`RBPF_DUMP_ROWS=1`) as `dmp_s10_<ct><r>` |
+| `--gap-fill 1` | rover observation gaps: IMU dead-reckoned positions at 5 Hz (IMU up to each output time only), written to the npz `gap_rows` |
+| `--env QC_ANY_BAND_CP_CNR=40` | with `QC_ANY_BAND_CODE_ONLY=0`, a rover one-band satellite keeps its carrier only at this C/N0 or more (the ensemble's one-band member) |
+| `plateau_los.py` | CPU line-of-sight tracer for PLATEAU meshes (2D grid + DDA, numba) |
+| `--env NLOS_ONLINE=1 --env NLOS_TRI_NPZ=tri.npz` | traces every satellite each epoch from the IMU-predicted antenna position over the `load_plateau` triangle cache, and feeds the NLOS set to the NLOS layers below |
+| `--env NLOS_MEAS_MODE=3` | NLOS pairs leave the double differences while `NLOS_HYBRID_MIN_LOS` (6) satellites stay in line of sight; with fewer, their sigma is multiplied by `NLOS_MEAS_SIGMA_MULT` (5) |
+| `--env NLOS_REF_LOS=1` | each system's DD reference is its highest line-of-sight satellite |
+| `--env NLOS_MASK_FILE=...csv` | read a precomputed mask (`build_per_epoch_nlos_csv.py` format) for any city |
+| `--env P2_MIN_NS=n`, `P2_IMU_ONLY=1`, `DOP_LOWSAT_SIG=s` | probes, not adopted: commit phase-2 epochs with `n` common satellites (default 6), commit GNSS-less epochs from IMU/NHC/ZUPT, Doppler velocity prior from 2–4 satellites |
+
+Results and the negative findings are in the technical report (WP59, WP60).
+
 ## Checking the copy
 
 `check_frozen_copy.py` compares the shipped mode, resolved-ambiguity count
