@@ -1307,7 +1307,7 @@ positions, excluding (`nl1`) or inflating (`nl2`): Nagoya 2 59.1 / 59.2%
 | One run, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | PPC OFFICIAL, WP56 | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.61 |
-| PPC OFFICIAL, WP60 | 90.0 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.39 |
+| PPC OFFICIAL, WP60 | 89.7 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.33 |
 | correct FIX, WP60 (`score_label.py`) | 61.3 | 80.2 | 80.3 | 71.6 | 45.2 | 25.5 | |
 | wrong / FIX, WP60 (worst seed) | 0.07 (0.10) | 0.02 (0.03) | 0.01 (0.02) | 0.01 (0.04) | 5.84 (7.06) | 0.00 (0.00) | |
 

@@ -482,7 +482,7 @@ runs; "half 1 / half 2" split each run at its middle epoch):
 | PPC OFFICIAL, real time | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean | half 1 / half 2 |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
 | WP56, one run (3-seed mean) | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.6 | |
-| WP60, one map-aided run (3-seed mean) | 90.0 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.4 | |
+| WP60, one map-aided run (3-seed mean) | 89.7 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.3 | |
 | WP59: 3 seeds, ambiguity-fit choice | 85.7 | 93.8 | 92.2 | 78.2 | 59.7 | 88.2 | 83.0 | 81.1 / 86.0 |
 | + one-band carriers at 40 dB-Hz | 85.9 | 93.9 | 93.0 | 78.6 | 62.1 | 89.1 | 83.8 | 81.6 / 87.1 |
 | learned choice | 86.3 | 94.9 | 93.3 | 79.3 | 61.1 | 90.2 | 84.2 | 82.1 / 87.4 |
