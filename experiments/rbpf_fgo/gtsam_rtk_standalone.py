@@ -260,6 +260,9 @@ def _load_nlos_mask(run):
         r"C:\Users\rsasa\Workspace\old\gnss_gpu\experiments\results"
         r"\plateau_nlos_phase33")
     path = Path(mask_dir) / f"tokyo_run{run}_per_epoch_nlos.csv"
+    # WP60: NLOS_MASK_FILE names the mask directly (any city)
+    if os.environ.get('NLOS_MASK_FILE'):
+        path = Path(os.environ['NLOS_MASK_FILE'])
     mask = {}
     n_rows = 0
     n_nlos = 0
@@ -1183,6 +1186,8 @@ class GtsamRtk(rtkpos):
         # 0=off, 1=hard-exclude the DD-PR/DD-CP factor, 2=inflate its sigma
         # by NLOS_MEAS_SIGMA_MULT.
         self.nlos_meas_mode = int(os.environ.get('NLOS_MEAS_MODE', '0'))
+        # WP60: pick the DD reference among map-LOS satellites
+        self.nlos_ref_los = int(os.environ.get('NLOS_REF_LOS', '0'))
         self.nlos_meas_sigma_mult = float(os.environ.get('NLOS_MEAS_SIGMA_MULT', '5.0'))
         # Fraction of this epoch's ACTIVE candidates that must be
         # NLOS-flagged before the whole-epoch Q=4 report is refused (layer
@@ -4845,6 +4850,12 @@ class GtsamRtkTc(GtsamRtk):
                             if int(sat[i]) not in self._one_band_sats]
                     if full:
                         cand = np.asarray(full)
+                if self.nlos_ref_los and nlos_sats:
+                    # WP60: a map-flagged NLOS reference would flag every
+                    # pair of its system; take the highest LOS satellite
+                    los_c = [i for i in cand if int(sat[i]) not in nlos_sats]
+                    if los_c:
+                        cand = np.asarray(los_c)
                 ref_idx = cand[np.argmax(el[cand])]
                 ref_sat = sat[ref_idx]
             lams = _get_wavelengths(self.nav, obs_sd, ref_sat)
