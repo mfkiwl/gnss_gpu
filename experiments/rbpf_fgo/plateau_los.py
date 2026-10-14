@@ -20,7 +20,7 @@ def _enu_rot(x):
 
 
 @njit(cache=True)
-def _hit(o, d, v0, e1, e2):
+def _hit(o, d, v0, e1, e2, tmin):
     px = d[1] * e2[2] - d[2] * e2[1]
     py = d[2] * e2[0] - d[0] * e2[2]
     pz = d[0] * e2[1] - d[1] * e2[0]
@@ -39,11 +39,11 @@ def _hit(o, d, v0, e1, e2):
     if v < 0.0 or u + v > 1.0:
         return False
     t = (e2[0] * qx + e2[1] * qy + e2[2] * qz) * inv
-    return t > 1e-3
+    return t > tmin
 
 
 @njit(cache=True)
-def _occluded(o, d, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, zall):
+def _occluded(o, d, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, zall, tmin):
     if d[2] <= 0.0:
         return False
     if o[2] >= zall:
@@ -86,7 +86,7 @@ def _occluded(o, d, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, 
         if o[2] + d[2] * t_in <= czmax[c]:
             for k in range(cstart[c], cstart[c + 1]):
                 j = ctris[k]
-                if _hit(o, d, V0[j], E1[j], E2[j]):
+                if _hit(o, d, V0[j], E1[j], E2[j], tmin):
                     return True
         if tmx < tmy:
             t_in = tmx; tmx += tdx; cx += sx
@@ -97,19 +97,23 @@ def _occluded(o, d, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, 
 
 
 @njit(parallel=True, cache=True)
-def _los_batch(O, D, valid, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, zall):
+def _los_batch(O, D, valid, V0, E1, E2, cstart, ctris, czmax, xmin, ymin, cell, nx, ny, zall, tmin):
     B, S = valid.shape
     out = np.ones((B, S), dtype=np.bool_)
     for b in prange(B):
         for s in range(S):
             if valid[b, s]:
                 out[b, s] = not _occluded(O[b], D[b, s], V0, E1, E2, cstart, ctris, czmax,
-                                          xmin, ymin, cell, nx, ny, zall)
+                                          xmin, ymin, cell, nx, ny, zall, tmin)
     return out
 
 
 class GridTracer:
-    def __init__(self, triangles, cell=8.0):
+    def __init__(self, triangles, cell=8.0, tmin=3.0):
+        # tmin [m]: surfaces nearer than this along a ray are ignored -- a
+        # bridge deck or railing around a car driving on the bridge would
+        # otherwise block every satellite
+        self.tmin = float(tmin)
         tri = np.asarray(triangles, dtype=np.float64).reshape(-1, 3, 3)
         self.o = tri.reshape(-1, 3).mean(axis=0)
         self.R = _enu_rot(self.o)
@@ -156,7 +160,8 @@ class GridTracer:
         O = np.ascontiguousarray((rx - self.o) @ self.R.T)
         D = np.ascontiguousarray(d @ self.R.T)
         return _los_batch(O, D, valid, self.V0, self.E1, self.E2, self.cstart, self.ctris,
-                          self.czmax, self.xmin, self.ymin, self.cell, self.nx, self.ny, self.zall)
+                          self.czmax, self.xmin, self.ymin, self.cell, self.nx, self.ny, self.zall,
+                          self.tmin)
 
     def inside_mask(self, rx):
         """True where the receiver looks enclosed (zenith and eight 35-deg
@@ -172,7 +177,7 @@ class GridTracer:
         O = np.ascontiguousarray((rx - self.o) @ self.R.T)
         los = _los_batch(O, Dn, np.ones((len(rx), 9), dtype=np.bool_), self.V0, self.E1, self.E2,
                          self.cstart, self.ctris, self.czmax, self.xmin, self.ymin, self.cell,
-                         self.nx, self.ny, self.zall)
+                         self.nx, self.ny, self.zall, self.tmin)
         return ~los.any(axis=1)
 
     def check_los(self, rx, sat):
