@@ -1141,6 +1141,93 @@ of Nagoya 1 (seed 20260710):
 
 Not shipped.
 
+### WP58 (2026-10-14, negative): fewer-pair FIX entry and one-band carriers
+
+**Where the real-time epochs go** (WP56 label, WP55 positions, 3 seeds, % of
+rover epochs; A FIX correct, B FIX wrong, C unfixed with the reported
+position within 0.5 m, D unfixed with the float within 0.5 m but the
+reported position not, E unfixed with both off and an outage or < 4
+carrier pairs, F unfixed with both off and 4+ pairs):
+
+| run | A | B | C | D | E | F |
+|---|---:|---:|---:|---:|---:|---:|
+| Tokyo 1 | 62.9 | 0.0 | 22.6 | 0.9 | 4.0 | 9.6 |
+| Tokyo 2 | 82.2 | 0.0 | 10.5 | 0.8 | 3.8 | 2.8 |
+| Tokyo 3 | 78.6 | 0.0 | 17.5 | 0.6 | 2.0 | 1.3 |
+| Nagoya 1 | 70.5 | 0.0 | 16.4 | 1.1 | 6.0 | 5.4 |
+| Nagoya 2 | 52.0 | 0.0 | 8.5 | 0.4 | 9.6 | 29.4 |
+| Nagoya 3 | 30.8 | 0.0 | 46.3 | 1.8 | 8.4 | 12.8 |
+
+Post-processed (WP57), C is 21.8 / 8.3 / 12.5 / 8.5 / 6.3 / 34.6%. C epochs
+are float quality, not lost fixes:
+- **Carrier pairs:** median 9–13 (A epochs 24–40).
+- **MAP pairs above 0.99:** median 0–6 (A epochs 19–37).
+- **Reported error:** mostly 5–50 cm. Below 5 cm: 5.0 / 3.2 / 6.9 / 0.5 /
+  0.1 / 2.3%.
+
+**Fewer-pair entry (label only, replay of 36 runs).** A second entry branch
+needs `nb_at[0.99] >= K` for L consecutive epochs, with the PF guards, the
+DD-pseudorange quality veto and the WP56 float check. Results are forward
+means (Nagoya 3) / Nagoya 2 worst-seed wrong:
+
+| K / L | forward | backward |
+|---|---|---|
+| none | 62.84 (30.8) / 0.08% | 63.14 / 1.02% |
+| 8 / 5 | 66.98 (41.6) / 13.47% | 66.93 / 10.83% |
+| 10 / 5 | 66.10 (39.1) / 13.41% | 66.68 / 3.78% |
+| 12 / 5 | 64.98 (36.0) / 4.61% | 65.70 / 3.57% |
+| 8 / 25 | 62.96 (30.8) / 0.08% | 63.91 / 1.02% |
+| 10–12 / 25–100 | 62.84–62.90 / 0.08% | 63.15–63.49 / 1.02% |
+
+Per epoch, without hysteresis, unfixed epochs with ≥ 10 pairs above 0.99
+would add 7.6 / 3.1 / 7.1 / 5.3 / 2.5 / 13.5 pp correct, but 2.57% of Nagoya
+2's epochs wrong. The wrong basin agrees on few pairs as readily as the right
+one.
+
+**One-band satellites in the C epochs.** Seed 20260710, `qcedit`
+instrumented with a wrapper, no code change:
+
+| | Tokyo 1 (first 4,000 epochs) | Nagoya 3 |
+|---|---|---|
+| one-band satellites, median: C / A epochs | 5 / 2 | 2 / 2 |
+| C epochs with ≥ 15 carrier pairs: now → with one pair per one-band satellite | 8.9 → 49.0% | 25.2 → 47.5% |
+
+**Probe A: carrier on** (`--env QC_ANY_BAND_CODE_ONLY=0`). Seed 20260710,
+full forward runs, live WP56 label, compared with the same seed's WP56:
+
+| | correct FIX | wrong / FIX | float within 0.5 m | PPC OFFICIAL |
+|---|---:|---:|---:|---:|
+| Tokyo 1 | 63.2 → 57.2% | 0.04 → 0.04% | 80.7 → 72.5% | 86.1 → 77.4% |
+| Tokyo 3 | 78.2 → 73.9% | 0.00 → 0.02% | 94.5 → 84.2% | 91.8 → 89.3% |
+| Nagoya 2 | 52.4 → 51.4% | 0.08 → 2.10% | 57.8 → 58.4% | 58.4 → 57.6% |
+| Nagoya 3 | 32.0 → 15.1% | 0.00 → 0.00% | 69.7 → 18.6% | 82.7 → 28.8% |
+
+Carrier rows at truth in probe A, comparing one-band with two-band rows:
+
+| | Tokyo 1 | Nagoya 3 |
+|---|---|---|
+| fraction more than 0.25 cycle off an integer | 31.9% / 6.6% | 42.3% / 24.3% |
+| integer jumps per 1,000 pair-epochs | 96.6 / 8.5 | 97.2 / 19.4 |
+
+The surviving band is mostly reflected or diffracted, and has no dual-band
+slip check.
+
+**Probe B: carrier only at 40 dB-Hz or more** (rover C/N0 on the band;
+wrapper, no code change):
+
+| | correct FIX | wrong / FIX | float within 0.5 m | PPC OFFICIAL |
+|---|---:|---:|---:|---:|
+| Tokyo 1 | 63.2 → 58.7% | 0.04 → 0.06% | 80.7 → 77.1% | 86.1 → 79.7% |
+| Nagoya 2 | 52.4 → 51.0% | 0.08 → 2.05% | 57.8 → 60.5% | 58.4 → 59.7% |
+| Nagoya 3 | 32.0 → 30.1% | 0.00 → 0.00% | 69.7 → 70.7% | 82.7 → 87.9% |
+
+Not shipped: correct FIX falls everywhere, Nagoya 2 exceeds 1% wrong and
+Tokyo 1 positions get worse.
+
+**GLONASS** is not a quick source of pairs. The bases are Trimble (Tokyo
+Alloy, Nagoya NetR9) and the rover a Septentrio mosaic-X5, so integer
+GLONASS ambiguities would need inter-frequency bias handling.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

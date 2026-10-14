@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP58** (negative result, record only): where the real-time
+  epochs go, and two ways to fix more of them, both rejected.
+  - **Where the epochs go.** 8.5–46.3% of epochs have a correct position
+    but no FIX; they have 9–13 carrier pairs against 24–40 in FIX epochs.
+  - **Fewer-pair FIX entry.** At 1 s it marks 4.6–13.5% of Nagoya 2's fixes
+    wrong; at 5 s or longer it adds at most 0.1 pp.
+  - **One-band satellites' carrier** (single seed). It lowers correct FIX
+    on every run tried (Nagoya 3 32.0 → 15.1%) and marks 2.1% of Nagoya
+    2's fixes wrong; at truth those carriers jump integer 5–11 times as
+    often as two-band ones.
+  - **The same, gated at 40 dB-Hz.** Nagoya 3 PPC OFFICIAL rises to 87.9%,
+    but correct FIX still falls and Nagoya 2 reaches 2.05% wrong.
 - **RB-FGO-PF WP57** (`experiments/rbpf_fgo/`): the backward pass takes the
   IMU bias from the first parked 5 s window (`IMU_STATIC_SEARCH=1`, set by
   `--reverse`) instead of the run's last 5 s. Tokyo 3 ends mid-turn, and the
