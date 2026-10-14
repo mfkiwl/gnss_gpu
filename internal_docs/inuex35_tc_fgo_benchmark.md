@@ -922,6 +922,121 @@ forward and backward positions there by time since each pass's last FIX
 +1.1 pp, but Tokyo 3 −2.2 to −4.8 pp and Nagoya 1 up to −3.2 pp (6-run mean
 84.6–86.1% against 85.8%). Not shipped.
 
+### WP56 (2026-10-14): float-consistency check on the FIX label
+
+**Why.** The WP50 label was chosen on the forward runs; the backward runs
+(WP51, 18 runs) are data it was not tuned on. Replayed truth-free on them,
+the WP50 label equals the live backward `rule_fix` on all 18 runs, and is
+wrong on 4.8% of Tokyo 3 fixes (4.01 / 5.28 / 5.03% per seed), 1.15% of
+Nagoya 1 and 0.90% of Nagoya 2 (3-seed means).
+
+**Where the wrong fixes are.** All labelled FIX epochs, 18 runs per
+direction, by distance from the fix to the graph float:
+
+| fix − float | forward FIX | forward wrong | backward FIX | backward wrong |
+|---|---:|---:|---:|---:|
+| < 0.2 m | 114,381 | 6 (0.01%) | 90,470 | 151 (0.17%) |
+| 0.2–0.5 m | 2,711 | 15 (0.55%) | 11,894 | 161 (1.35%) |
+| 0.5–1 m | 243 | 14 (5.8%) | 5,412 | 289 (5.3%) |
+| ≥ 1 m | 37 | 3 (8.1%) | 6,443 | 1,293 (20.1%) |
+
+Other splits (backward): carried epochs 13.0% wrong (forward 0.34%);
+epochs where the entry rule does not hold 10.7% (forward 0.22%); MAP pairs
+above 0.90 under 6: 20.9%. The backward float is far worse on two runs:
+
+| graph float within 0.5 m (median error) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| forward | 81.0% (0.05 m) | 91.5% (0.03 m) | 94.5% (0.03 m) | 86.1% (0.14 m) | 57.6% (0.24 m) | 70.5% (0.18 m) |
+| backward | 82.9% (0.08 m) | 90.8% (0.04 m) | 52.1% (0.46 m) | 62.5% (0.25 m) | 59.7% (0.20 m) | 78.2% (0.14 m) |
+
+Backward Tokyo 3 has 60 s blocks with median float error 0.5–12.6 m
+throughout; backward Nagoya 1 has 88 / 155 / 193 m blocks (seed 20260710).
+Moving epochs show no timing offset (along-track error / speed: +0.002 s
+backward, −0.0002 s forward on Tokyo 3). Cause not found. The position
+carried from the hysteresis entry also separates them (backward: ≥ 0.5 m
+from it, 560 of 1,713 epochs wrong; forward 6 of 227), but it is unavailable
+on 9,060 backward FIX epochs.
+
+**Rule.** `--fix-flt-max 0.5`: no label (entry or stay) while
+‖reported position − graph float‖ > 0.5 m. The carry is not vetoed.
+
+| Variant (correct FIX mean, worst-seed wrong) | forward 6-run mean | forward worst | backward 6-run mean | backward worst (Tokyo 3 / Nagoya 1 / Nagoya 2) |
+|---|---:|---:|---:|---:|
+| WP50 | 63.09% | 0.20% | 62.05% | 5.28 / 1.23 / 1.02% |
+| label 0.5 m (**shipped**) | 62.84% | 0.08% | 59.61% | 0.41 / 0.04 / 1.02% |
+| carry 0.5 m only | 63.07% | 0.20% | 61.38% | 3.11 / 1.15 / 1.02% |
+| label and carry 0.5 m | 62.75% | 0.08% | 56.31% | 0.48 / 0.05 / 1.02% |
+| label and carry 0.4 m | 62.51% | 0.04% | 55.14% | 0.42 / 0.05 / 1.02% |
+| label and carry 0.6 m | 62.84% | 0.20% | 57.33% | 0.66 / 0.09 / 1.02% |
+| label 0.5 m, carry 1.0 m | 62.80% | 0.08% | 57.77% | 0.47 / 0.04 / 1.02% |
+
+Label-only threshold sweep (forward mean / forward worst / backward worst
+without Nagoya 2): none 63.09 / 0.20 / 5.28%; 1.0 m 63.01 / 0.20 / 3.10%;
+0.75 m 62.92 / 0.20 / 2.89%; 0.6 m 62.91 / 0.20 / 0.56%; 0.5 m 62.84 / 0.08
+/ 0.41%; 0.4 m 62.76 / 0.06 / 0.38%; 0.3 m 62.60 / 0.06 / 0.16%.
+
+Leave-one-run-out over the threshold (fold = both directions of one run;
+every training pseudo-run at or below the cap, pooled over seeds). With a
+0.7% cap no threshold is feasible once Nagoya 2's backward run (about 0.9%
+pooled at every threshold) is in training. With a 1.0% cap:
+
+| held out | threshold | forward | backward |
+|---|---:|---:|---:|
+| Tokyo 1 | 0.6 m | 63.0% (0.05%) | 60.9% (0.06%) |
+| Tokyo 2 | 0.6 m | 82.3% (0.02%) | 81.7% (0.00%) |
+| Tokyo 3 | 1.0 m | 78.7% (0.00%) | 63.9% (2.42%) |
+| Nagoya 1 | 0.6 m | 70.5% (0.00%) | 61.3% (0.04%) |
+| Nagoya 2 | 0.6 m | 52.1% (0.13%) | 53.2% (0.91%) |
+| Nagoya 3 | 0.6 m | 31.0% (0.00%) | 42.4% (0.06%) |
+
+Only Tokyo 3 has fixes 0.6–1.0 m off the float, so a data-chosen threshold
+misses it when Tokyo 3 is held out. The shipped 0.5 m is the correct-FIX
+tolerance and was fixed by design.
+
+**Remaining backward wrong fixes.** Nagoya 2: the 0.95 m basin, entered at
+556839.4 s going backward and held to 556831 s (40–47 epochs per seed); its
+float is in the same basin (median fix − float 0.05 m). Tokyo 3: 6 / 23 / 35
+epochs per seed, spread over 5–8 FIX segments with errors 0.5–1.2 m.
+
+**All outputs (3 seeds; correct FIX, mean wrong, worst-seed wrong).**
+
+| output | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| real time WP50 | 63.1 (0.05 / 0.05) | 82.8 (0.02 / 0.03) | 78.8 (0.00 / 0.00) | 70.6 (0.00 / 0.00) | 52.2 (0.13 / 0.20) | 31.0 (0.04 / 0.12) | 63.09 |
+| real time WP56 | 62.9 (0.04 / 0.04) | 82.2 (0.02 / 0.03) | 78.6 (0.00 / 0.00) | 70.5 (0.00 / 0.00) | 52.0 (0.07 / 0.08) | 30.8 (0.00 / 0.00) | 62.84 |
+| 15 s lag WP50 | 67.3 (0.05 / 0.06) | 85.7 (0.02 / 0.03) | 82.5 (0.00 / 0.00) | 75.3 (0.00 / 0.00) | 55.4 (0.13 / 0.19) | 41.6 (0.03 / 0.09) | 67.97 |
+| 15 s lag WP56 | 67.3 (0.04 / 0.04) | 85.7 (0.02 / 0.03) | 82.5 (0.00 / 0.00) | 75.3 (0.00 / 0.00) | 55.4 (0.07 / 0.08) | 40.9 (0.00 / 0.00) | 67.83 |
+| post-processed WP51 | 69.3 (0.10 / 0.15) | 87.1 (0.02 / 0.03) | 83.6 (0.02 / 0.02) | 79.9 (0.00 / 0.00) | 56.8 (0.23 / 0.35) | 55.8 (0.16 / 0.23) | 72.11 |
+| post-processed WP56 | 69.3 (0.10 / 0.18) | 87.1 (0.02 / 0.03) | 84.6 (0.05 / 0.12) | 79.9 (0.00 / 0.00) | 56.9 (0.18 / 0.24) | 54.9 (0.14 / 0.18) | 72.11 |
+| backward WP50 | 61.3 (0.08 / 0.08) | 82.1 (0.00 / 0.00) | 67.8 (4.77 / 5.28) | 64.5 (1.15 / 1.23) | 53.7 (0.90 / 1.02) | 42.9 (0.06 / 0.10) | 62.05 |
+| backward WP56 | 60.8 (0.05 / 0.08) | 81.4 (0.00 / 0.00) | 59.9 (0.24 / 0.41) | 61.0 (0.03 / 0.04) | 53.2 (0.91 / 1.02) | 41.3 (0.06 / 0.10) | 59.61 |
+
+The post-processed output combines the WP56 forward and backward labels
+(`combine_fb.py`, unchanged). Tokyo 3 gains 1.0 pp because backward
+segments that used to clash with the forward label now pass the anchored
+union.
+
+| PPC OFFICIAL (`score_runs`, 3 seeds) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| real time (WP55 choice) | 85.5 ± 0.8 | 93.7 ± 0.1 | 92.3 ± 0.8 | 77.2 ± 1.5 | 57.5 ± 1.4 | 83.7 ± 2.8 | 81.6 |
+| 15 s lag | 84.6 ± 0.8 | 94.2 ± 0.1 | 92.3 ± 0.7 | 75.0 ± 1.1 | 57.8 ± 1.1 | 79.3 ± 2.7 | 80.5 |
+| post-processed (WP54 choice) | 92.0 ± 0.0 | 95.6 ± 0.3 | 92.9 ± 0.6 | 79.5 ± 3.2 | 64.3 ± 1.2 | 90.9 ± 1.3 | 85.9 |
+
+All within 0.07 pp of WP55 / WP50 / WP54.
+
+**How it was computed.**
+- Forward: `replay_carry.py --flt-max 0.5` on the WP48 row-dump runs
+  (`dmp_*`); with `--flt-max 0` this reproduces the WP50 replays exactly.
+- Backward: the same replay on the WP50 backward runs. On their carried
+  epochs (about 5%) the PF's own position was not stored, so the check
+  there uses the carried position.
+- Live check, `RBPF_SHIP=wp56`, seed 20260710, first 1,500 epochs of
+  Tokyo 1, Tokyo 3 and Nagoya 3:
+  - `hyst_fix`, `carry_fwd`, `rule_fix`, `pos_src` and positions equal the
+    replay, including the 3 (Tokyo 1) and 4 (Tokyo 3) epochs the check
+    removes there;
+  - the graph float equals the WP48 dump runs.
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

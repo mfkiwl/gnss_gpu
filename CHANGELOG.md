@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP56** (`experiments/rbpf_fgo/`, new default
+  `RBPF_SHIP=wp56`): `--fix-flt-max 0.5` withholds the FIX label while the
+  reported position is more than 0.5 m from the shared graph's float (the
+  correct-FIX tolerance, not tuned); the integer carry is unchanged. On
+  the backward pass, which the label was not tuned on, the worst wrong
+  share falls from 5.28% to 0.41% (Nagoya 2's wrong basin, 1.02%, aside).
+  Real time 62.9 / 82.2 / 78.6 / 70.5 / 52.0 / 30.8% correct FIX (−0.25 pp
+  mean), worst seed 0.08% wrong (WP50: 0.20%); post-processed mean
+  unchanged at 72.1%, worst 0.24% (0.35%). PPC OFFICIAL unchanged.
+  `replay_carry.py --flt-max` replays it.
 - **RB-FGO-PF WP55** (`experiments/rbpf_fgo/`, new default
   `RBPF_SHIP=wp55`): the ambiguity-fit position choice now also runs in
   real time (`--af-select 6`, `af_select.py`), among the reported position,

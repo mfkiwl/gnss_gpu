@@ -168,7 +168,7 @@ filter (`RBPF_SHIP=wp48` keeps WP48):
 | `--fix-hyst L,G,t,F,t2,F2,M,B[,Q]` | FIX once `--fix-rule` held L consecutive epochs, then while this continuation rule holds, bridging G failed epochs. Shipped `5,2,2,6,2,6,0.1,5` |
 | `--carry 1` with `--env RBPF_CARRY=1` | forward integer carry (`integer_carry.IntegerCarry`): an unfixed epoch is labelled FIX at the carried-integer position while the last FIX's single-difference integers fit the raw DD carrier (8+ pairs, 0.15 cycle). npz columns `hyst_fix`, `carry_fwd` |
 | `integer_smoother.py runN.npz --max-s 15` | backward carry from later FIX epochs, a fixed-lag output (`runN_smooth.npz` / `.pos`, column `carry_bwd`); needs the row dump (`RBPF_DUMP_ROWS=1`, on in WP50) |
-| `replay_carry.py` | replays the WP50 label layer on a row-dump run (the PF does not see it, so the output equals `RBPF_SHIP=wp50`) |
+| `replay_carry.py [--flt-max 0.5]` | replays the WP50 label layer on a row-dump run (the PF does not see it, so the output equals `RBPF_SHIP=wp50`); `--flt-max` adds the WP56 float check |
 | `score_label.py --data-root .../PPC-Dataset runN.npz [runN_smooth.npz ...]` | correct FIX (% of rover epochs) and wrong / FIX of the `rule_fix` label as written to the `.pos`, the FIX columns of [the report](../../docs/rbpf_fgo_report.md); `PPC_CITY` selects the city |
 
 WP51 (2026-10-13) adds a post-processed output from a second, backward pass
@@ -180,7 +180,7 @@ WP51 (2026-10-13) adds a post-processed output from a second, backward pass
 | `--env PHASE1_STUCK_N=N` | hand over to Phase 2 after N Phase-1 epochs in a row fail to commit, once 20 have committed (the Phase-1 smoother can wedge on `map::at`). Default 0 (off) |
 | `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3] [--af-half 5] [--af-margin 0.1]` | the WP51 output; WP54 adds `pos_src`: on unfixed epochs the position is the one of forward / backward / mean / forward float / backward float that best fits the DD carrier modulo whole cycles (ambiguity function over ±`--af-half` epochs, forward kept unless beaten by `--af-margin`; `--af-half -1` keeps forward positions). Then (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
 
-WP55 (2026-10-14) is the default (`RBPF_SHIP=wp50` keeps WP50): the
+WP55 (2026-10-14; `RBPF_SHIP=wp55` keeps it, `wp50` keeps WP50): the
 same filter and label, plus a causal choice of the reported position on
 unfixed epochs.
 
@@ -188,6 +188,12 @@ unfixed epochs.
 |---|---|
 | `--af-select N [--af-margin 0.1]` | with RBPF_CARRY=1: on epochs the label leaves unfixed, report whichever of the reported position, graph float and MAP / mixture tracked beliefs best fits the DD carrier modulo whole cycles, averaged over the last N epochs (`af_select.CausalSelector`); npz columns `pos_src` (0 reported, 1 float, 2 MAP belief, 3 mixture belief) and `pre_af_xyz`. Shipped N = 6 |
 | `af_select.py runN.npz [--past 6] [--margin 0.1]` | the same choice replayed on a saved run with its row dump (`runN_af.npz`) |
+
+WP56 (2026-10-14) is the default: WP55 plus a float check on the label.
+
+| option | effect |
+|---|---|
+| `--fix-flt-max D` | no `--fix-rule` / `--fix-hyst` label (entry or stay) while the reported position is more than D m from the shared graph's float; the integer carry is not vetoed. Shipped D = 0.5 (the correct-FIX tolerance). On the backward pass, the worst wrong share falls from 5.28% to 0.41% (Nagoya 2's wrong basin aside) |
 
 WP52 (negative result, default off):
 
