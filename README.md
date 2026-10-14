@@ -134,8 +134,10 @@ time-mirrored run and keeps the backward fixes the forward label confirms;
 both passes fall into Nagoya 2's wrong basin, so their agreement alone is
 never a FIX. WP54 then reports, on unfixed epochs, whichever of the
 forward, backward or float positions best fits the carrier modulo whole
-cycles: PPC OFFICIAL averages 86.3% over the six runs (WP51: 81.5%),
-level with or slightly above the PPC2024 winner's 85.6%. FIX numbers score the `.pos` output as written (the WP50 numbers
+cycles: PPC OFFICIAL averages 86.3% over the six runs (WP51: 81.5%).
+That output uses future data. Under the PPC2024 rules (real time, no future
+observations) the comparable number is the real-time 81.6%; the winner
+scored 85.6% on the hidden half and 78.7% on the public half. FIX numbers score the `.pos` output as written (the WP50 numbers
 first published also dropped guard-failing carried epochs). No external RTK
 engine feeds the FIX label. WP55 applies the same choice in real time over
 the last 6 epochs: PPC OFFICIAL 81.6% (WP50: 79.9%). WP56 (the default)

@@ -396,7 +396,10 @@ the same flags on run2/run3 cost 0.1–2.3 pp.
 
 **Literature and OSS read for this round.** PPC2024 results (1st TURING:
 public 78.7%, private 85.6%; 2nd TUMSAT; 3rd AIST). These scores are the
-distance share within 0.5 m, FLOAT included, over Tokyo and Nagoya. Also:
+distance share within 0.5 m, FLOAT included, over Tokyo and Nagoya. The
+rules required real-time processing (no future observations). The private
+score covers a hidden half of the six runs. During the challenge, ground
+truth existed only for two separate training runs. Also:
 TURING's gici-open fork (LAMBDA + WL/NL, FIX accepted only if the
 re-optimised range cost does not rise, ZUPT); Fredeluces, Ozeki, Kubo,
 El-Mowafy, Sensors 24(9) 2712, 2024 (velocity-propagated float prior,
