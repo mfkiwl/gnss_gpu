@@ -722,10 +722,9 @@ Real-time ensemble (WP59) and PLATEAU NLOS (WP60), one member per command
 (three seeds of WP56 above plus):
 
 ```bash
-# one-band carriers at 40 dB-Hz or more (a WP58 variant; the C/N0 gate is a
-# small wrapper that zeroes weaker carriers before the runner reads them)
-CP_CNR=40 RBPF_PYTHON=.../pywrap_cp.sh PPC_DATA_ROOT=.../PPC-Dataset/tokyo \
-    bash run_ship.sh w58b_tk1 1 0 --rb-seed 20260710 --env QC_ANY_BAND_CODE_ONLY=0
+# one-band carriers at 40 dB-Hz or more (a WP58 variant)
+PPC_DATA_ROOT=.../PPC-Dataset/tokyo bash run_ship.sh w58b_tk1 1 0 --rb-seed 20260710 \
+    --env QC_ANY_BAND_CODE_ONLY=0 --env QC_ANY_BAND_CP_CNR=40
 # PLATEAU buildings and bridges along the run, then their triangle cache
 python ../fetch_plateau_subset.py --run-dir .../PPC-Dataset/tokyo/run1 --preset tokyo23 \
     --output-dir plateau/tokyo_run1 --mesh-radius 1 --include-bridges
