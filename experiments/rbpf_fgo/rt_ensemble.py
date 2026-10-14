@@ -48,6 +48,7 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from af_select import MISSING, epoch_fit
+from fix_rules import errors
 from integer_smoother import load_rows
 
 CANDS = ("sol_xyz", "flt_xyz", "trk_map_xyz", "trk_mix_xyz")
@@ -344,15 +345,12 @@ def main():
                 near = np.linalg.norm(np.asarray(d["sol_xyz"], float) - o, axis=1) < 0.2
                 votes += np.asarray(d["rule_fix"], bool) & near
             lab = votes >= args.label_votes
-            rt, x, _ = refs[k]
-            rkey = {float(t): i for i, t in enumerate(rt)}
-            ri = np.array([rkey.get(round(float(t), 1), -1) for t in run.tow])
-            has = ri >= 0
-            e = np.full(len(run.tow), np.nan)
-            e[has] = np.linalg.norm(o[has] - x[ri[has]], axis=1)
-            good = has & np.isfinite(e)
-            lab_c = 100 * np.sum(lab & good & (e <= 0.5)) / good.sum()
-            lab_w = 100 * np.sum(lab & good & (e > 0.5)) / max(np.sum(lab & good), 1)
+            # score_label.py's definition: correct FIX over every rover epoch,
+            # wrong FIX over every FIX
+            e, n_rover = errors({"tow": run.tow, "sol_xyz": o}, k[1],
+                                Path(args.data_root), CITY[k[0]])
+            lab_c = 100 * np.sum(lab & (e <= 0.5)) / n_rover
+            lab_w = 100 * np.sum(lab & (e > 0.5)) / max(int(lab.sum()), 1)
         rows.append((full, h1, h2, shifts[k], lab_c, lab_w))
         if args.save:
             Path(args.save).mkdir(parents=True, exist_ok=True)
