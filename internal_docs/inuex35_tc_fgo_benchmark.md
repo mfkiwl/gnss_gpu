@@ -924,6 +924,14 @@ forward and backward positions there by time since each pass's last FIX
 
 ### WP56 (2026-10-14): float-consistency check on the FIX label
 
+**Correction (WP57, same day).** The Tokyo 3 backward numbers below (4.0–5.3%
+wrong, float within 0.5 m on 52%) came from a backward-pass IMU bias bug, not
+from the label. With the bias fixed, the WP50 label is wrong on 0.06% of
+backward Tokyo 3 fixes and its float is within 0.5 m on 93.6%. On the fixed
+backward runs the check is justified by Nagoya 1 (1.23 → 0.04%) and the
+forward runs (0.20 → 0.08%). Its threshold sweep and leave-one-run-out are
+redone in the WP57 section. The rest of this section is the original record.
+
 **Why.** The WP50 label was chosen on the forward runs; the backward runs
 (WP51, 18 runs) are data it was not tuned on. Replayed truth-free on them,
 the WP50 label equals the live backward `rule_fix` on all 18 runs, and is
@@ -1036,6 +1044,102 @@ All within 0.07 pp of WP55 / WP50 / WP54.
     replay, including the 3 (Tokyo 1) and 4 (Tokyo 3) epochs the check
     removes there;
   - the graph float equals the WP48 dump runs.
+
+### WP57 (2026-10-14): backward-pass IMU bias from a parked window
+
+**Cause.** `_transition_to_phase2` takes the IMU bias (and the tilt) from
+the first 500 IMU samples (5 s), assuming the vehicle is parked. A backward
+pass reads the mirrored IMU, so that window is the last 5 s of the run.
+Last 5 s per run (true time): Tokyo 3 mean yaw rate 3.99 deg/s, gyro std
+2.2–2.7 deg/s, accel std 0.55–0.70 m/s² (turning); Tokyo 1 gyro std up to
+1.13 deg/s with the mean unchanged; the four other runs parked (std ≤ 0.45
+deg/s). The backward Tokyo 3 bias at the end of the run was [−0.19, −0.19,
+−4.5] deg/s against the mirrored forward bias ≈ [−0.01, −0.24, +0.02]; the
+other five backward runs mirror the forward bias.
+
+**Fix.** `IMU_STATIC_SEARCH=1` (set by `--reverse`): the bias comes from the
+first 500-sample window (250-sample steps) whose per-axis gyro std is under
+0.0087 rad/s and accel std under 0.2 m/s² (`IMU_STATIC_GYRO_STD`,
+`IMU_STATIC_ACC_STD`). The windows chosen are: backward Tokyo 3 at 60 s
+(bias [−0.014, −0.245, 0.023] deg/s), backward Tokyo 1 at 2.5 s, and index 0
+for every other backward run and every forward run. Forward runs keep the
+option off. The four other backward runs and all forward runs are
+unchanged, because the same first window is chosen there.
+
+**Reruns** (`RBPF_SHIP=wp50 --reverse 1`, 3 seeds, `bw57TK_*`), label
+replayed with the WP56 check:
+
+| backward, 3 seeds | float within 0.5 m (median) | correct FIX, WP50 label (worst wrong) | correct FIX, WP56 label (worst wrong) |
+|---|---:|---:|---:|
+| Tokyo 1, before | 82.9% (0.08 m) | 61.3% (0.08%) | 60.8% (0.08%) |
+| Tokyo 1, WP57 | 84.0% (0.08 m) | 62.3% (0.09%) | 61.9% (0.10%) |
+| Tokyo 3, before | 52.1% (0.46 m) | 67.8% (5.28%) | 59.9% (0.41%) |
+| Tokyo 3, WP57 | 93.6% (0.05 m) | 80.2% (0.06%) | 80.0% (0.07%) |
+
+Short check (2,500 backward epochs of Tokyo 3, seed 20260710): float within
+0.5 m 49.6 → 97.5%, correct FIX 52.7 → 83.9%.
+
+**Post-processed** (WP56 forward label, `combine_fb.py` unchanged):
+
+| 3 seeds | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| correct FIX, WP56 | 69.3 (0.10 / 0.18) | 87.1 (0.02 / 0.03) | 84.6 (0.05 / 0.12) | 79.9 (0.00 / 0.00) | 56.9 (0.18 / 0.24) | 54.9 (0.14 / 0.18) | 72.11 |
+| correct FIX, WP57 | 69.6 (0.10 / 0.18) | 87.1 (0.02 / 0.03) | 85.3 (0.02 / 0.05) | 79.9 (0.00 / 0.00) | 56.9 (0.18 / 0.24) | 54.9 (0.14 / 0.18) | 72.26 |
+| PPC OFFICIAL, WP56 | 92.0 ± 0.0 | 95.6 ± 0.3 | 92.9 ± 0.6 | 79.5 ± 3.2 | 64.3 ± 1.2 | 90.9 ± 1.3 | 85.9 |
+| PPC OFFICIAL, WP57 | 92.1 ± 0.1 | 95.6 ± 0.3 | 95.2 ± 0.7 | 79.5 ± 3.2 | 64.3 ± 1.2 | 90.9 ± 1.3 | 86.3 |
+
+(correct FIX: mean wrong / worst-seed wrong in parentheses.)
+
+**WP56 check re-evaluated on the fixed backward runs.**
+- Backward wrong FIX: 342 of 118,710, of which 170 are 0.5 m or more from
+  the float (forward: 17 of 38).
+- Label-only threshold sweep, as forward mean / backward worst without
+  Nagoya 2:
+  - none: 63.09 / 1.23% (Nagoya 1)
+  - 1.0 m: 63.01 / 0.12%
+  - 0.75 m: 62.92 / 0.10%
+  - 0.6 m: 62.91 / 0.10%
+  - 0.5 m: 62.84 / 0.10%
+  - 0.4 m: 62.76 / 0.23%
+  - 0.3 m: 62.60 / 0.10%
+- Leave-one-run-out with a 1.0% pooled cap:
+  - TK1 / TK2 / TK3 / NG2 / NG3 folds pick 1.0 m and hold out at 0.05 /
+    0.00 / 0.04 / 0.90 / 0.06% backward.
+  - The NG1 fold picks no check and holds out at 1.16% backward. Only
+    Nagoya 1 shows the failure.
+- With a 0.7% cap no threshold is feasible once Nagoya 2 is in training.
+
+**Nagoya 1 backward (not a bug).** Two observations rule out the obvious
+causes:
+- **Observation files.** No base or rover gap there (rover: one 10 s gap at
+  550597 s).
+- **Arc ends.** Forward row dumps, 6 runs × 7,238 arcs of 21+ epochs, |DD
+  residual| at truth for the k-th epoch from an arc's start / end:
+  - pseudorange p90: 2.73 / 2.05 m at k = 0, and 2.30 / 1.68 m at k = 7
+    (mid-arc 1.43 m);
+  - carrier p90: 0.065 / 0.091 m at k = 0, and 0.063 / 0.064 m at k = 7.
+
+  Arc ends are not worse, so there is no case for trimming them.
+
+What the epochs show instead:
+- At 551349 s (backward order), satellites 41 (−20 m DD pseudorange
+  residual on one band) and 24 (+9 to +16 m) enter as new arcs.
+- The backward float goes 0.2 → 3.2 → 4.4 m with 12–14 satellites. The
+  forward float holds 0.13–0.19 m with the same satellites, whose
+  ambiguities were set earlier.
+- 551334–551316 s has 0–2 satellites (an outage in both directions). The
+  backward float enters it 9–20 m off and comes out 330 m off at 551314 s.
+- It then holds no carrier ambiguity (`nsat_dd` 0, 1,697 "no valid DD"
+  against 165 forward) until about 551140 s.
+
+**Sanity reset on it (negative).** `--sanity-enable 1 --env SANITY_PR_ONLY=1`
+plus the WP13r recovery flags were tried on the first 3,300 backward epochs
+of Nagoya 1 (seed 20260710):
+- the failed stretch recovers within 20 s (0.1 m by 551240 s);
+- but the float within 0.5 m falls 66.2 → 53.7%, and correct FIX 72.8 →
+  59.4% (wrong 0.00 → 0.05%).
+
+Not shipped.
 
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 

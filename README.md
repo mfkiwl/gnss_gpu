@@ -77,10 +77,11 @@ data; a 15 s fixed lag adds 3.4–10.1 pp, and the post-processed output
 | RB-FGO-PF WP51, forward + backward, post-processed (3 seeds) | 69.3% (0.10%) | 87.1% (0.02%) | 83.6% (0.02%) | 79.9% (0.00%) | 56.8% (0.23%) | 55.8% (0.16%) |
 | **RB-FGO-PF WP56, real time (3 seeds)** | **62.9% (0.04%)** | **82.2% (0.02%)** | **78.6% (0.00%)** | **70.5% (0.00%)** | **52.0% (0.07%)** | **30.8% (0.00%)** |
 | **RB-FGO-PF WP56, 15 s fixed lag (3 seeds)** | **67.3% (0.04%)** | **85.7% (0.02%)** | **82.5% (0.00%)** | **75.3% (0.00%)** | **55.4% (0.07%)** | **40.9% (0.00%)** |
-| **RB-FGO-PF WP56, forward + backward, post-processed (3 seeds)** | **69.3% (0.10%)** | **87.1% (0.02%)** | **84.6% (0.05%)** | **79.9% (0.00%)** | **56.9% (0.18%)** | **54.9% (0.14%)** |
+| RB-FGO-PF WP56, forward + backward, post-processed (3 seeds) | 69.3% (0.10%) | 87.1% (0.02%) | 84.6% (0.05%) | 79.9% (0.00%) | 56.9% (0.18%) | 54.9% (0.14%) |
+| **RB-FGO-PF WP57, forward + backward, post-processed (3 seeds)** | **69.6% (0.10%)** | **87.1% (0.02%)** | **85.3% (0.02%)** | **79.9% (0.00%)** | **56.9% (0.18%)** | **54.9% (0.14%)** |
 
 <p align="center">
-  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP56 (post-processed forward and backward pass, real time with a 15 s fixed lag, and real time) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
+  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP57 (post-processed forward and backward pass), WP56 (real time with a 15 s fixed lag, and real time) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
 </p>
 
 ```mermaid
@@ -113,17 +114,17 @@ flowchart TD
 
 Slips and outages remove the affected ambiguity from every particle.
 
-| Shipped RB-FGO-PF (WP56) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+| Shipped RB-FGO-PF (WP56 / WP57) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
 | Correct FIX / rover epochs, real time | 62.9% | 82.2% | 78.6% | 70.5% | 52.0% | 30.8% |
 | Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.04%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.07% (0.08%) | 0.00% (0.00%) |
 | Correct FIX, 15 s fixed lag | 67.3% | 85.7% | 82.5% | 75.3% | 55.4% | 40.9% |
 | Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.04%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.07% (0.08%) | 0.00% (0.00%) |
-| Correct FIX, post-processed (WP51 backward pass) | 69.3% | 87.1% | 84.6% | 79.9% | 56.9% | 54.9% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.10% (0.18%) | 0.02% (0.03%) | 0.05% (0.12%) | 0.00% (0.00%) | 0.18% (0.24%) | 0.14% (0.18%) |
+| Correct FIX, post-processed (WP51 backward pass) | 69.6% | 87.1% | 85.3% | 79.9% | 56.9% | 54.9% |
+| Wrong FIX / FIX ↓ (worst seed) | 0.10% (0.18%) | 0.02% (0.03%) | 0.02% (0.05%) | 0.00% (0.00%) | 0.18% (0.24%) | 0.14% (0.18%) |
 | PPC OFFICIAL (position only), real time (WP55 choice) | 85.5% | 93.7% | 92.3% | 77.2% | 57.5% | 83.7% |
 | PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.3% | 75.0% | 57.8% | 79.3% |
-| PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.0% | 95.6% | 92.9% | 79.5% | 64.3% | 90.9% |
+| PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.1% | 95.6% | 95.2% | 79.5% | 64.3% | 90.9% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
 
 WP45 added the two-band satellite set and basin persistence, WP47 one-band
@@ -133,15 +134,18 @@ time-mirrored run and keeps the backward fixes the forward label confirms;
 both passes fall into Nagoya 2's wrong basin, so their agreement alone is
 never a FIX. WP54 then reports, on unfixed epochs, whichever of the
 forward, backward or float positions best fits the carrier modulo whole
-cycles: PPC OFFICIAL averages 85.9% over the six runs (WP51: 81.5%), on
-par with the PPC2024 winner's 85.6%. FIX numbers score the `.pos` output as written (the WP50 numbers
+cycles: PPC OFFICIAL averages 86.3% over the six runs (WP51: 81.5%),
+level with or slightly above the PPC2024 winner's 85.6%. FIX numbers score the `.pos` output as written (the WP50 numbers
 first published also dropped guard-failing carried epochs). No external RTK
 engine feeds the FIX label. WP55 applies the same choice in real time over
 the last 6 epochs: PPC OFFICIAL 81.6% (WP50: 79.9%). WP56 (the default)
 withholds the FIX label while the fix is more than 0.5 m from the graph's
-float. On the backward pass, which the label was not tuned on, the worst
-wrong share falls from 5.3% to 0.41% (Nagoya 2's basin aside), for 0.25 pp
-fewer real-time fixes; PPC OFFICIAL does not change.
+float. On the backward pass, which the label was not tuned on, Nagoya 1's
+wrong share falls from 1.23% to 0.04%, for 0.25 pp fewer real-time fixes;
+PPC OFFICIAL does not change. WP57 takes the backward pass's IMU bias from
+a parked window instead of the run's end (mid-turn on Tokyo 3): backward
+Tokyo 3 rises from 59.9% to 80.0% correct FIX, and post-processed PPC
+OFFICIAL from 85.9% to 86.3%.
 `RBPF_SHIP=wp55` … `wp43` reproduce earlier releases;
 `PPC_CITY=nagoya` selects the Nagoya lever arm. Details:
 [technical report](docs/rbpf_fgo_report.md) ·
