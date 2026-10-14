@@ -846,6 +846,47 @@ Nagoya loses 5–15 pp, and Nagoya 2's wrong share does not fall: the wrong
 basin is chosen during the stop but labelled only after the vehicle starts
 moving. Not pursued.
 
+### WP54 (2026-10-13): ambiguity-fit float selection (post-processed)
+
+PPC OFFICIAL is distance-weighted and ignores the FIX label. Distance-weighted
+breakdown of the WP51 output (3-seed mean, % of reference distance; strict
+form, every reference epoch weighted by the distance since the previous one):
+
+| | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+|---|---:|---:|---:|---:|---:|---:|
+| correct FIX | 69.6 | 86.8 | 80.7 | 58.9 | 43.0 | 44.0 |
+| float within 0.5 m | 15.0 | 7.9 | 12.2 | 17.4 | 15.8 | 37.4 |
+| float 0.5–2 m | 10.2 | 4.5 | 4.8 | 13.9 | 18.6 | 18.1 |
+| float over 2 m | 4.8 | 0.8 | 2.4 | 7.3 | 22.2 | 0.3 |
+| missing | 0.4 | 0.0 | 0.0 | 2.5 | 0.0 | 0.0 |
+
+The strict and the `score_runs` (lenient) official scores differ by at most
+0.3 pp. Oracles over candidate positions on unfixed epochs: better of
+forward / backward 87.0% (6-run mean), plus their mean 87.9%, plus either
+pass's graph float 90.1%, plus the code-only position 90.1%.
+
+Selectors (no truth at run time; the classifiers are trained leave-one-run-
+out, all three seeds of the held-out run excluded):
+
+| PPC OFFICIAL | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| WP51 | 84.5 | 94.7 | 92.9 | 76.3 | 58.8 | 81.5 | 81.5 |
+| pass that fixed more recently | 90.3 | 95.5 | 88.9 | 73.6 | 61.4 | 84.1 | 82.3 |
+| closer to the code-only position (1 m) | 86.4 | 95.6 | 91.6 | 77.2 | 60.2 | 84.4 | 82.6 |
+| classifier, forward vs backward | 89.4 | 95.6 | 91.6 | 78.9 | 62.9 | 88.7 | 84.5 |
+| classifier, five candidates | 89.9 | 95.6 | 91.9 | 81.7 | 61.9 | 89.9 | 85.2 |
+| classifier, five candidates + AF features | 91.3 | 95.9 | 92.5 | 82.3 | 63.5 | 92.1 | 86.3 |
+| AF max, single epoch | 91.1 | 95.6 | 91.9 | 79.1 | 63.7 | 89.5 | 85.2 |
+| **AF, ±5 epochs, margin 0.1 (`combine_fb.py`)** | **92.0** | **95.6** | **93.0** | **79.5** | **64.2** | **90.9** | **85.9** |
+
+(The last row is `score_runs` on the tool's output; the others are the
+scratch evaluation on the reference grid, which agrees within 0.4 pp.) AF is
+mean cos(2π frac(b0 − J·(x − pos0)/λ)) over the forward row dump. A shallow
+decision tree (depth 2–3) reaches only 81.5–82.2%. Nine AF variants (window
+0 / ±2 / ±5, margin 0 / 0.05 / 0.1) scored 85.1–85.8% on the scratch grid.
+FIX labels and FIX positions are identical to WP51 on all 18 runs; per-seed
+spread of the official score is ±0.1 (Tokyo 1) to ±3.2 pp (Nagoya 1).
+
 ## Target numbers (their README, Tokyo PPC, full length, defaults, NF=3)
 
 | run | length | AllRMS | FixRMS | fix % | <50 cm |

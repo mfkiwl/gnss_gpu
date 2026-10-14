@@ -178,7 +178,7 @@ WP51 (2026-10-13) adds a post-processed output from a second, backward pass
 |---|---|
 | `--reverse 1` | run on a time-mirrored copy of the run (`reverse_time.py`): epochs reversed, Doppler / satellite velocity / gyro negated, satellite states at the true transmission time, LLI moved to the previous observation. `tow`, truth and outputs stay in true time; npz rows are in processing (reverse) order and carry `reverse=1`. Also sets a 100-epoch Phase-1 bootstrap (`--env PHASE1_EPOCHS=...` overrides) and `PHASE1_STUCK_N=5` |
 | `--env PHASE1_STUCK_N=N` | hand over to Phase 2 after N Phase-1 epochs in a row fail to commit, once 20 have committed (the Phase-1 smoother can wedge on `map::at`). Default 0 (off) |
-| `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3]` | the WP51 output (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
+| `combine_fb.py fwd/runN.npz bwd/runN.npz [--k 5] [--d 0.3] [--af-half 5] [--af-margin 0.1]` | the WP51 output; WP54 adds `pos_src`: on unfixed epochs the position is the one of forward / backward / mean / forward float / backward float that best fits the DD carrier modulo whole cycles (ambiguity function over ±`--af-half` epochs, forward kept unless beaten by `--af-margin`; `--af-half -1` keeps forward positions). Then (`runN_fb.npz` / `.pos`, column `fb_src`): backward carry from the forward label without a lag limit, backward FIX segments that the forward label confirms (k+ epochs within d m, never further), then carry both ways. Needs the forward row dump |
 
 WP52 (negative result, default off):
 

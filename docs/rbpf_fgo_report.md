@@ -1,8 +1,8 @@
 # RB-FGO-PF technical report: integer-ambiguity particle filtering on a shared factor graph
 
-Status as of WP51 (2026-10-13). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
+Status as of WP54 (2026-10-13). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-049 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-052 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -13,8 +13,11 @@ with the right one through accumulated likelihood instead of being locked in
 by a single ratio test. A label layer decides when to report FIX: a
 hysteresis rule on the particles' per-pair agreement, then an integer carry
 that keeps an accepted integer set while the carrier stays locked. For
-post-processing, a second pass runs the same filter backward in time, and its
-fixes are added where the forward label confirms them.
+post-processing, a second pass runs the same filter backward in time, its
+fixes are added where the forward label confirms them, and on epochs that
+stay unfixed the position that best fits the carrier modulo whole cycles is
+reported (WP54). That output scores 85.9% PPC OFFICIAL averaged over the six
+runs, on par with the PPC2024 winner (85.6%).
 
 On the six PPC 2024 runs (Tokyo 1–3, Nagoya 1–3), three seeds each, with one
 scorer for every system:
@@ -174,6 +177,43 @@ backward label alone is less safe than the forward one (below). The
 threshold of 5 agreeing epochs is not critical: 1 and 10 give the same
 results within 0.2 pp.
 
+### Float positions in the post-processed output (WP54)
+
+PPC OFFICIAL weights each epoch by the distance travelled, and does not care
+whether a position is labelled FIX. Weighted that way, the WP51 output lost
+most of its distance on unfixed epochs more than 0.5 m off: 15 / 5 / 7 / 21
+/ 41 / 18% of the distance on Tokyo 1–3 / Nagoya 1–3. The two passes are
+often wrong in different places: taking the better of the forward and
+backward positions on each epoch would score 87.0% on average, and adding
+each pass's graph float as a candidate 90.1%.
+
+Without truth, `combine_fb.py` ranks five candidates on each unfixed epoch
+(forward, backward, their mean, forward float, backward float) by the
+ambiguity function of the raw DD carrier:
+
+    AF(x) = mean over pairs of cos(2π · frac(b0 − J·(x − pos0)/λ)),
+
+where b0 is the DD carrier minus the DD range at the float position pos0, so
+a position near the truth leaves near-integer residuals. AF is averaged over
+±5 epochs (±1 s), and the forward position stays unless another candidate
+beats it by more than 0.1. FIX labels and FIX positions do not change.
+
+Other selectors, on the same 18 runs:
+
+| PPC OFFICIAL, mean of 6 runs | |
+|---|---:|
+| WP51 output | 81.5% |
+| candidate whose pass fixed more recently | 82.3% |
+| candidate closer to the code-only position | 82.6% |
+| leave-one-run-out classifier, no AF | 85.2% |
+| AF, single epoch, no margin | 85.2% |
+| **AF, ±5 epochs, margin 0.1 (shipped)** | **85.9%** |
+| leave-one-run-out classifier with AF features | 86.3% |
+| oracle over the five candidates | 90.1% |
+
+The shipped rule needs no training data. The nine AF variants tried
+(window 0 / ±2 / ±5 epochs, margin 0 / 0.05 / 0.1) all scored 85.1–85.8%.
+
 ## How the results moved
 
 | Release | Change | Correct FIX (3 seeds) | Worst wrong / FIX |
@@ -186,6 +226,7 @@ results within 0.2 pp.
 | WP50 | hysteresis label, integer carry | 63.1 / 82.8 / 78.8 / 70.6 / 52.2 / 31.0% | 0.20% |
 | WP50, 15 s lag | backward carry | 67.3 / 85.7 / 82.5 / 75.3 / 55.4 / 41.6% | 0.19% |
 | WP51, post-processed | backward PF pass, anchored union, carry both ways | 69.3 / 87.1 / 83.6 / 79.9 / 56.8 / 55.8% | 0.35% |
+| WP54, post-processed | ambiguity-fit float selection (positions only) | unchanged | unchanged |
 
 Over the 15 s lag output, WP51's gain splits into three parts:
 
@@ -201,7 +242,9 @@ its own (forward: 31.0%).
 PPC OFFICIAL (position only): WP46 80.8 / 92.7 / 90.4 / 65.4 / 55.3 / 20.2%;
 WP50 84.3 / 93.8 / 91.8 / 74.5 / 56.1 / 78.8%; WP50 with the 15 s lag
 84.6 / 94.2 / 92.4 / 75.0 / 57.8 / 79.4%; WP51 84.8 / 94.7 / 92.9 / 76.3 /
-58.8 / 81.5%.
+58.8 / 81.5%; WP54 92.0 / 95.6 / 93.0 / 79.5 / 64.2 / 90.9% (mean 85.9%). The
+PPC2024 winner (TURING) reported 85.6%; our numbers are 3-seed means with up
+to ±3 pp seed spread on Nagoya 1, so this is parity, not a clear win.
 
 ## What did not work
 
