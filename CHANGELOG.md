@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Docs: PPC2024 comparison corrected.** PPC2024 required real-time
+  processing with no future observations, and ranked teams on a hidden half
+  of the six runs (winner 85.6% private, 78.7% public). The post-processed
+  output (86.3%) uses future data and had been compared with 85.6%; that
+  comparison is withdrawn. Under the challenge rules the comparable number
+  is the real-time output, 81.6% on all six runs. Report, README, plan,
+  D-057.
+
 - **RB-FGO-PF WP58** (negative result, record only): where the real-time
   epochs go, and two ways to fix more of them, both rejected.
   - **Where the epochs go.** 8.5–46.3% of epochs have a correct position
@@ -46,7 +54,7 @@
   post-processed label leaves unfixed, report whichever of the forward,
   backward, mean and float positions best fits the raw DD carrier modulo
   whole cycles. PPC OFFICIAL (3 seeds) 92.0 / 95.6 / 93.0 / 79.5 / 64.2 /
-  90.9%, mean 85.9% (WP51: 81.5%), on par with the PPC2024 winner's 85.6%.
+  90.9%, mean 85.9% (WP51: 81.5%).
   No training data; FIX labels unchanged.
 - **RB-FGO-PF WP53** (negative result, record only): vetoing FIX entry
   while an IMU detector says the vehicle is parked costs Nagoya 5–15 pp and

@@ -2,7 +2,7 @@
 
 Status as of WP58 (2026-10-14). Code: [`experiments/rbpf_fgo/`](../experiments/rbpf_fgo/README.md).
 Run-by-run record: [`internal_docs/inuex35_tc_fgo_benchmark.md`](../internal_docs/inuex35_tc_fgo_benchmark.md).
-Decisions: D-040 to D-056 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
+Decisions: D-040 to D-057 in [`internal_docs/decisions.md`](../internal_docs/decisions.md).
 
 ## Summary
 
@@ -18,7 +18,10 @@ post-processing, a second pass runs the same filter backward in time, its
 fixes are added where the forward label confirms them, and on epochs that
 stay unfixed the position that best fits the carrier modulo whole cycles is
 reported (WP54). That output scores 86.3% PPC OFFICIAL averaged over the six
-runs, level with or slightly above the PPC2024 winner (85.6%).
+runs. It uses future data, so it falls outside the PPC2024 rules (real time,
+no future observations). The real-time output follows those rules and scores
+81.6%. The winner scored 85.6% on the challenge's hidden half of the data and
+78.7% on the public half.
 
 On the six PPC 2024 runs (Tokyo 1–3, Nagoya 1–3), three seeds each, with one
 scorer for every system:
@@ -62,8 +65,22 @@ earlier are unaffected.
 - **Seeds.** RB-FGO-PF is stochastic, so every configuration is run with
   three seeds (20260710–12). Single-seed differences on Nagoya are often
   within the ±3 pp seed spread, so decisions use three seeds.
-- **PPC OFFICIAL.** The challenge's position-only score (distance share
-  within 0.5 m), independent of the FIX label.
+- **PPC OFFICIAL.** The challenge's position-only score: the share of
+  distance travelled (reference speed × epoch interval, so stops do not
+  count) with 3D error within 0.5 m, averaged over the six runs. It does not
+  depend on the FIX label.
+- **PPC2024 rules.** The challenge required real-time processing: an epoch
+  may use past observations, never future ones. Teams were ranked on a
+  hidden half of the six runs (private score). The winner (TURING) scored
+  85.6% private and 78.7% public. During the challenge, participants had
+  ground truth only for two separate training runs, not for these six.
+  - **Comparable here:** only the real-time output, scored on all six runs.
+    It was developed with these runs' ground truth.
+  - **Outside the rules:** the 15 s lag and post-processed outputs, which
+    use future data.
+
+  Sources: [overview](http://taroz.net/data/PPC2024.pdf),
+  [results](http://taroz.net/data/PPC2024_results.pdf).
 - **External engines.** libgnss++ and the inuex35 reproduction are scored by
   the same script. No external engine feeds the RB-FGO-PF FIX label.
 
@@ -385,9 +402,12 @@ real time with WP55 85.5 / 93.7 / 92.3 / 77.2 / 57.5 / 83.7% (mean 81.6%).
 WP56 moves these by at most 0.07 pp (post-processed 92.0 / 95.6 / 92.9 /
 79.5 / 64.3 / 90.9%, mean 85.9%; real time unchanged at 81.6%). WP57 raises
 the post-processed output to 92.1 / 95.6 / 95.2 / 79.5 / 64.3 / 90.9%
-(mean 86.3%). The PPC2024 winner (TURING) reported 85.6%. Our numbers are
-3-seed means with up to ±3 pp seed spread on Nagoya 1, so this is parity or
-a small lead, not a clear win.
+(mean 86.3%). The PPC2024 winner (TURING) scored 85.6% under the challenge
+rules: real time, ranked on the hidden half of the data (78.7% on the public
+half). Only our real-time output follows those rules: 81.6% on all six runs,
+3-seed mean, developed with these runs' ground truth. Earlier versions of
+this report compared the post-processed output with 85.6%. That comparison
+was wrong, because the post-processed output uses future data.
 
 ## What did not work
 
