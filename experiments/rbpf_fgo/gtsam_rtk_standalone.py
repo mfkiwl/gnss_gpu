@@ -3725,6 +3725,8 @@ class GtsamRtkTc(GtsamRtk):
 
         self.phase = 1
         self.phase1_epochs = int(os.environ.get('PHASE1_EPOCHS', '40'))
+        # WP59: fewest common satellites a phase-2 epoch is committed with
+        self.p2_min_ns = int(os.environ.get('P2_MIN_NS', '6'))
         self._phase1_hist = []  # [(obs.t, ecef), ...] committed Phase-1 epochs
 
         lever_str = os.environ.get('LEVER_ARM', '0.31,0,0.55')
@@ -3883,6 +3885,14 @@ class GtsamRtkTc(GtsamRtk):
         self.dop_outlier = float(os.environ.get('DOP_V2_OUTLIER_M_S', '0.5'))
         self.dop_sig_floor = float(os.environ.get('DOP_SIG_FLOOR', '0.05'))
         self.dop_cov_scale = float(os.environ.get('DOP_COV_SCALE', '1.0'))
+        # WP59: Doppler rows from 2-4 satellites (too few for the v2 LS
+        # with a clock-drift unknown) as a clock-eliminated, rank-deficient
+        # velocity prior: DOP_LOWSAT_SIG [m/s] per-row sigma at 45 dB-Hz
+        # (0 = off), DOP_LOWSAT_GATE [m/s] largest disagreement with the
+        # IMU-predicted velocity along any observed direction
+        self.dop_lowsat_sig = float(os.environ.get('DOP_LOWSAT_SIG', '0'))
+        self.dop_lowsat_gate = float(os.environ.get('DOP_LOWSAT_GATE', '1.0'))
+        self._doppler_lowsat_count = 0
         self._nhc_fire_count = 0
         self._zupt_fire_count = 0
         self._doppler_fire_count = 0
@@ -4174,7 +4184,8 @@ class GtsamRtkTc(GtsamRtk):
                 obs.D[_geo, :] = 0.0
         if self.dop_v2:
             return self._add_doppler_vel_prior_v2(
-                graph, ep, obs, rs, vs, iu, sat, pos_pred_ecef, rot_nb, omega_b)
+                graph, ep, obs, rs, vs, iu, sat, pos_pred_ecef, rot_nb, omega_b,
+                vel_pred_enu=vel_pred_enu)
         v_dop_ecef, _clkdr, dop_ok, dop_res, _dop_n = _tc_doppler_velocity_ls(
             obs, obs_sd, rs, vs, iu, sat, pos_pred_ecef,
             nav_nf=self.nav.nf,
@@ -4201,7 +4212,7 @@ class GtsamRtkTc(GtsamRtk):
         return True
 
     def _add_doppler_vel_prior_v2(self, graph, ep, obs, rs, vs, iu, sat,
-                                  pos_ecef, rot_nb, omega_b):
+                                  pos_ecef, rot_nb, omega_b, vel_pred_enu=None):
         """WP48 Doppler velocity prior (DOP_V2=1): per-satellite rover
         Doppler rows without GLONASS and BeiDou GEO, C/N0-weighted LS
         (weight 10^((min(C/N0, 45) - 45) / 10)) with iterative rejection
@@ -4243,6 +4254,11 @@ class GtsamRtkTc(GtsamRtk):
                 c = 0.0
             w.append(10.0 ** ((min(c, 45.0) - 45.0) / 10.0) if c > 0 else 0.1)
         if len(b) < 5:
+            if (self.dop_lowsat_sig > 0 and len(b) >= 2
+                    and vel_pred_enu is not None):
+                return self._add_doppler_lowsat(
+                    graph, ep, np.asarray(A), np.asarray(b), np.asarray(w),
+                    np.asarray(vel_pred_enu, dtype=float), rot_nb, omega_b)
             return False
         A = np.asarray(A); b = np.asarray(b); w = np.asarray(w)
         keep = np.ones(len(b), dtype=bool)
@@ -4283,6 +4299,59 @@ class GtsamRtkTc(GtsamRtk):
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_enu, gtsam.noiseModel.Gaussian.Covariance(cov_enu)))
         self._doppler_fire_count += 1
+        return True
+
+    def _add_doppler_lowsat(self, graph, ep, A, b, w, vel_pred_enu,
+                            rot_nb, omega_b):
+        """WP59: 2-4 Doppler rows. The clock drift is eliminated (rows
+        centred on their weighted mean), leaving information on the
+        velocity along at most k-1 directions; the prior is that
+        information with the IMU-predicted velocity filling the
+        unobserved directions (variance 1e4). Skipped when any observed
+        direction disagrees with the prediction by more than
+        DOP_LOWSAT_GATE."""
+        E = A[:, :3]
+        wd = w / self.dop_lowsat_sig ** 2
+        sw = wd.sum()
+        if sw <= 0:
+            return False
+        e_bar = (wd[:, None] * E).sum(axis=0) / sw
+        b_bar = float(wd @ b) / sw
+        Ec = E - e_bar
+        bc = b - b_bar
+        R = self.R_enu2ecef
+        lam_ecef = (Ec.T * wd) @ Ec
+        eta_ecef = (Ec.T * wd) @ bc
+        lam = R.T @ lam_ecef @ R
+        eta = R.T @ eta_ecef
+        lam = 0.5 * (lam + lam.T)
+        ev, U = np.linalg.eigh(lam)
+        obs_dir = ev > 1e-6 * max(float(ev.max()), 1e-12)
+        if not obs_dir.any():
+            return False
+        v_pred = np.asarray(vel_pred_enu, dtype=float)
+        if self.doppler_lever_comp and rot_nb is not None and omega_b is not None:
+            lever_v = np.asarray(rot_nb) @ np.cross(
+                np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
+        else:
+            lever_v = np.zeros(3)
+        mean = np.zeros(3)
+        cov = np.zeros((3, 3))
+        for j in range(3):
+            u = U[:, j]
+            if obs_dir[j]:
+                comp = float(u @ eta) / ev[j] - float(u @ lever_v)
+                if abs(comp - float(u @ v_pred)) > self.dop_lowsat_gate:
+                    return False
+                mean += comp * u
+                cov += np.outer(u, u) * (self.dop_cov_scale ** 2 / ev[j])
+            else:
+                mean += float(u @ v_pred) * u
+                cov += np.outer(u, u) * 1e4
+        cov = 0.5 * (cov + cov.T) + np.eye(3) * self.dop_sig_floor ** 2
+        graph.add(gtsam.PriorFactorVector(
+            self.PV(ep), mean, gtsam.noiseModel.Gaussian.Covariance(cov)))
+        self._doppler_lowsat_count += 1
         return True
 
     def process(self, obs, cs=None, orb=None, bsx=None, obsb=None):
@@ -6217,7 +6286,10 @@ class GtsamRtkTc(GtsamRtk):
             _gdop_bad = not (_gdop_val < 10.0)
             if _gdop_bad:
                 self.gdop_skip_count += 1
-        if ns < 6 or _gdop_bad:
+        # WP59: P2_MIN_NS (default 6) is the fewest common satellites a
+        # phase-2 epoch is committed with; fewer abandons the epoch (the
+        # next committed epoch re-integrates the IMU across it)
+        if ns < self.p2_min_ns or _gdop_bad:
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
