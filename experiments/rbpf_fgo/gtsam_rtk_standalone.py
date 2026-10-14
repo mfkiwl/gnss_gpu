@@ -390,6 +390,10 @@ class GtsamRtk(rtkpos):
         # carrier is blanked): they keep a narrow-sky graph solvable
         # without adding low-quality ambiguities
         self.qc_any_band_code_only = int(os.environ.get('QC_ANY_BAND_CODE_ONLY', '0'))
+        # WP59: with QC_ANY_BAND_CODE_ONLY=0, a rover one-band satellite
+        # keeps its carrier on a band only at QC_ANY_BAND_CP_CNR dB-Hz or
+        # more (0 = no gate); the ensemble's one-band member uses 40
+        self.qc_any_band_cp_cnr = float(os.environ.get('QC_ANY_BAND_CP_CNR', '0'))
         # WP47: DD-pseudorange sigma multiplier for pairs involving a
         # one-band satellite, rover or base (1 = unchanged)
         self.qc_any_band_pr_scale = float(os.environ.get('QC_ANY_BAND_PR_SCALE', '1'))
@@ -3515,6 +3519,14 @@ class GtsamRtk(rtkpos):
                 elif one_band and self.qc_any_band_code_only:
                     obs.L[j, f] = 0.0
             keep.append(s_)
+        if rover and self.qc_any_band_cp_cnr > 0 and self._one_band_rov:
+            nf_g = min(nf, obs.L.shape[1], obs.S.shape[1])
+            for j, s_ in enumerate(obs.sat):
+                if int(s_) in self._one_band_rov:
+                    for f in range(nf_g):
+                        if (obs.L[j, f] != 0.0
+                                and float(obs.S[j, f]) < self.qc_any_band_cp_cnr):
+                            obs.L[j, f] = 0.0
         return np.array(sorted(keep), dtype=int)
 
     def process(self, obs, cs=None, orb=None, bsx=None, obsb=None):

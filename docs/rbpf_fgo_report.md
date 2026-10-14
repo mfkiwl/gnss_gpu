@@ -23,6 +23,14 @@ no future observations). The real-time output follows those rules and scores
 81.6%. The winner scored 85.6% on the challenge's hidden half of the data and
 78.7% on the public half.
 
+Running several forward filters side by side and choosing among their
+positions epoch by epoch, still in real time, lifts that to 84.7% (WP59: four
+runs, map-free). Adding three runs that drop or down-weight satellites a 3D
+city model (PLATEAU) puts out of line of sight gives 86.3% (WP60). The
+choice and a height correction are trained leave-one-run-out on these six
+runs, which challenge participants could not do. Our first and second time
+halves score 83.3% and 90.3%; the challenge's split is not public.
+
 On the six PPC 2024 runs (Tokyo 1–3, Nagoya 1–3), three seeds each, with one
 scorer for every system:
 
@@ -78,6 +86,8 @@ earlier are unaffected.
     It was developed with these runs' ground truth.
   - **Outside the rules:** the 15 s lag and post-processed outputs, which
     use future data.
+  - **Map-aided (WP60):** real time, but it also uses a 3D city model, which
+    is reported separately from the map-free numbers.
 
   Sources: [overview](http://taroz.net/data/PPC2024.pdf),
   [results](http://taroz.net/data/PPC2024_results.pdf).
@@ -466,6 +476,36 @@ half). Only our real-time output follows those rules: 81.6% on all six runs,
 this report compared the post-processed output with 85.6%. That comparison
 was wrong, because the post-processed output uses future data.
 
+Real time, every output scored by `rt_ensemble.py` (PPC OFFICIAL, all six
+runs; "half 1 / half 2" split each run at its middle epoch):
+
+| PPC OFFICIAL, real time | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | mean | half 1 / half 2 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| WP56, one run (3-seed mean) | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.6 | |
+| WP60, one map-aided run (3-seed mean) | 90.0 | 94.4 | 92.8 | 75.4 | 58.5 | 83.2 | 82.4 | |
+| WP59: 3 seeds, ambiguity-fit choice | 85.7 | 93.8 | 92.2 | 78.2 | 59.7 | 88.2 | 83.0 | 81.1 / 86.0 |
+| + one-band carriers at 40 dB-Hz | 85.9 | 93.9 | 93.0 | 78.6 | 62.1 | 89.1 | 83.8 | 81.6 / 87.1 |
+| learned choice | 86.3 | 94.9 | 93.3 | 79.3 | 61.1 | 90.2 | 84.2 | 82.1 / 87.4 |
+| + height bias, rover-gap rows (map-free) | 86.9 | 95.8 | 93.7 | 80.2 | 61.1 | 90.4 | **84.7** | 82.4 / 88.1 |
+| WP60: + one map-aided run | 91.7 | 96.5 | 94.4 | 81.7 | 62.1 | 90.3 | 86.1 | 83.2 / 90.1 |
+| + three map-aided runs, ambiguity-fit choice | 90.9 | 94.8 | 93.5 | 80.6 | 62.1 | 90.5 | 85.4 | 82.4 / 89.5 |
+| **+ three map-aided runs, learned choice** | 92.2 | 96.2 | 94.4 | 81.6 | 62.1 | 91.0 | **86.3** | 83.3 / 90.3 |
+
+The FIX label of the ensemble (at least two map-free members fixed within
+0.2 m of the output) gives 62.0 / 82.3 / 77.8 / 70.0 / 52.0 / 31.4% correct
+FIX at most 0.06% wrong, the same as one WP56 run. The map-aided runs' own
+label is not used (Nagoya 2: 5.84% wrong). The learned choice wins on 5 of
+6 runs and loses 0.7–1.0 pp on Nagoya 2.
+
+Against PPC2024, which ranked on a hidden half: the map-aided ensemble's
+86.3% on all the data is above the winner's 85.6% private score, and its
+map-free form (84.7%) is above the winner's whole-data estimate of about
+82% (public and private averaged). All three top teams scored higher on the
+private half (+2.7 to +6.9 pp); our second halves are likewise the easier
+ones. These are not like-for-like: our choice and height bias were trained
+on these six runs (leave-one-run-out), and the map-aided form uses a 3D city
+model.
+
 ## What did not work
 
 Each of these was measured on the same runs and seeds, and is recorded in the
@@ -642,6 +682,13 @@ benchmark record:
    (WP58). GLONASS would need inter-frequency bias handling, because the
    bases are Trimble (Alloy, NetR9) and the rover is a Septentrio
    mosaic-X5.
+5. Nagoya 2's 375 s street canyon (21% of its distance), where no member is
+   within 0.5 m even with the map (best candidate median 2.35 m): 60–75%
+   of the satellites are NLOS there, so the float needs another constraint
+   (map-aided pseudorange corrections, or carrier from the few line-of-sight
+   satellites held across slips).
+6. Training the ensemble choice and the height bias on runs outside the six
+   scored ones (the PPC2024 training runs), for a like-for-like comparison.
 
 ## Reproduction
 
@@ -670,6 +717,35 @@ RBPF_SHIP=wp48 PPC_DATA_ROOT=.../PPC-Dataset/tokyo bash run_ship.sh wp48_r1 1 0 
 python replay_carry.py results/wp48_r1/run1.npz results/c56_r1/run1.npz --run 1 \
     --data-root .../PPC-Dataset --flt-max 0.5 --smooth-dst results/c56S_r1/run1.npz
 ```
+
+Real-time ensemble (WP59) and PLATEAU NLOS (WP60), one member per command
+(three seeds of WP56 above plus):
+
+```bash
+# one-band carriers at 40 dB-Hz or more (a WP58 variant; the C/N0 gate is a
+# small wrapper that zeroes weaker carriers before the runner reads them)
+CP_CNR=40 RBPF_PYTHON=.../pywrap_cp.sh PPC_DATA_ROOT=.../PPC-Dataset/tokyo \
+    bash run_ship.sh w58b_tk1 1 0 --rb-seed 20260710 --env QC_ANY_BAND_CODE_ONLY=0
+# PLATEAU buildings and bridges along the run, then their triangle cache
+python ../fetch_plateau_subset.py --run-dir .../PPC-Dataset/tokyo/run1 --preset tokyo23 \
+    --output-dir plateau/tokyo_run1 --mesh-radius 1 --include-bridges
+python -c "import numpy as np, sys; sys.path.insert(0, '../../python'); \
+from gnss_gpu.io.plateau import load_plateau; \
+m = load_plateau('plateau/tokyo_run1', zone=9, kinds=('bldg', 'brid'), geoid_correction=36.41); \
+np.savez('plateau/tri_tokyo1.npz', triangles=m.triangles)"
+# map-aided member: NLOS traced online from the predicted antenna position
+PPC_DATA_ROOT=.../PPC-Dataset/tokyo bash run_ship.sh on3_tk1 1 0 --rb-seed 20260710 \
+    --gap-fill 1 --env NLOS_ONLINE=1 --env NLOS_TRI_NPZ=plateau/tri_tokyo1.npz \
+    --env NLOS_MEAS_MODE=3 --env NLOS_REF_LOS=1
+# the ensemble (needs a seed-20260710 run with RBPF_DUMP_ROWS=1 as dmp_s10_<ct><r>)
+python rt_ensemble.py --data-root .../PPC-Dataset --select learned --shift \
+    --gaps 'on3_{ct}{r}' --members 'af56{CT}_s10_r{r}' 'af56{CT}_s11_r{r}' \
+    'af56{CT}_s12_r{r}' 'w58b_{ct}{r}' 'on3_{ct}{r}' 'on3s11_{ct}{r}' 'on3s12_{ct}{r}' \
+    --label-members 'af56{CT}_s10_r{r}' 'af56{CT}_s11_r{r}' 'af56{CT}_s12_r{r}' 'w58b_{ct}{r}'
+```
+
+The geoid height is the EGM96 value over each run (Tokyo 36.2–36.4 m,
+Nagoya 37.2–37.3 m).
 
 `RBPF_SHIP=wp55`, `wp50`, `wp48`, `wp47`, `wp46`, `wp45` and `wp43` reproduce the
 earlier releases.
