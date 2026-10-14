@@ -1067,7 +1067,9 @@ def main() -> int:
     print(f"Motion factors (phase-2 epochs): Doppler velocity "
           f"{getattr(rtk, '_doppler_fire_count', 0)} (low-sat "
           f"{getattr(rtk, '_doppler_lowsat_count', 0)}), IMU-only epochs "
-          f"{getattr(rtk, 'imu_only_count', 0)}, NHC "
+          f"{getattr(rtk, 'imu_only_count', 0)}, NLOS-online inside "
+          f"{getattr(rtk, 'nlos_online_inside', 0)}, NLOS PR rows "
+          f"{getattr(rtk, 'nlos_meas_pr_affected', 0)}, NHC "
           f"{getattr(rtk, '_nhc_fire_count', 0)}, ZUPT "
           f"{getattr(rtk, '_zupt_fire_count', 0)}, phase-2 epochs "
           f"{getattr(rtk, 'epoch2', 0)}")

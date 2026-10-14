@@ -1188,6 +1188,20 @@ class GtsamRtk(rtkpos):
         self.nlos_meas_mode = int(os.environ.get('NLOS_MEAS_MODE', '0'))
         # WP60: pick the DD reference among map-LOS satellites
         self.nlos_ref_los = int(os.environ.get('NLOS_REF_LOS', '0'))
+        # WP60 NLOS_ONLINE=1: ray-trace the PLATEAU mesh (NLOS_TRI_NPZ, the
+        # load_plateau triangle cache) from this epoch's IMU-predicted
+        # antenna position instead of reading a precomputed mask; an epoch
+        # whose receiver looks enclosed by a building keeps the previous
+        # epoch's NLOS set
+        self.nlos_online = int(os.environ.get('NLOS_ONLINE', '0'))
+        self._los_tracer = None
+        self._nlos_online_prev = frozenset()
+        self.nlos_online_inside = 0
+        if self.nlos_online and os.environ.get('NLOS_TRI_NPZ'):
+            from plateau_los import GridTracer
+            with np.load(os.environ['NLOS_TRI_NPZ']) as _z:
+                self._los_tracer = GridTracer(_z['triangles'])
+            self.nlos_enable = 1
         self.nlos_meas_sigma_mult = float(os.environ.get('NLOS_MEAS_SIGMA_MULT', '5.0'))
         # Fraction of this epoch's ACTIVE candidates that must be
         # NLOS-flagged before the whole-epoch Q=4 report is refused (layer
@@ -1197,7 +1211,7 @@ class GtsamRtk(rtkpos):
         self._nlos_by_tow = {}
         self._nlos_mask_n_rows = 0
         self._nlos_mask_n_nlos = 0
-        if self.nlos_enable:
+        if self.nlos_enable and self._los_tracer is None:
             run_n = int(os.environ.get('NLOS_RUN', '0'))
             if run_n in (1, 2, 3):
                 (self._nlos_by_tow, self._nlos_mask_n_rows,
@@ -4795,6 +4809,25 @@ class GtsamRtkTc(GtsamRtk):
             return True
         return False
 
+    def _nlos_online_update(self, obs, rs, sat, iu, pos_pred_ecef):
+        """WP60: this epoch's NLOS set from the PLATEAU mesh, traced from
+        the IMU-predicted antenna position (body position + the lever arm
+        taken as vertical); stored where `_get_nlos_sats` returns it."""
+        _, tow = time2gpst(obs.t)
+        rx = (np.asarray(pos_pred_ecef, dtype=float)
+              + self.R_enu2ecef[:, 2] * float(self.lever_arm[2]))
+        sats = [int(s_) for s_ in sat]
+        if self._los_tracer.inside_mask(rx)[0]:
+            self.nlos_online_inside += 1
+            val = self._nlos_online_prev
+        else:
+            los = self._los_tracer.check_los(
+                rx, np.asarray(rs[np.asarray(iu), :3], dtype=float))
+            val = frozenset(s_ for s_, ok in zip(sats, los) if not ok)
+        self._nlos_online_prev = val
+        self._nlos_cache_key = round(tow, 1)
+        self._nlos_cache_val = val
+
     def _build_dd_factors_arm(self, graph, new_values, obs, obsb, obs_sd,
                                 rs, rsb, sat, el, iu, ir, pos_pred_ecef, ep):
         """Arm-factor analogue of the parent's `_build_dd_factors`
@@ -4816,6 +4849,8 @@ class GtsamRtkTc(GtsamRtk):
 
         # WP13j layer (b): this epoch's NLOS set, only computed when the
         # measurement-weighting layer is actually enabled (0 cost off).
+        if self._los_tracer is not None and self.nlos_meas_mode:
+            self._nlos_online_update(obs, rs, sat, iu, pos_pred_ecef)
         nlos_sats = self._get_nlos_sats(obs) if self.nlos_meas_mode else frozenset()
 
         # WP13s literal: tc/'s `_reset_persistently_failing_n` runs at
