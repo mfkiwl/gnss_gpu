@@ -282,6 +282,25 @@ def _load_nlos_mask(run):
     return mask, n_rows, n_nlos, n_bad_prn
 
 
+def _static_window(imu_data, n, gyro_std_max=None, acc_std_max=None):
+    """WP57: start index of the first n-sample IMU window (half-window
+    steps) whose per-axis gyro and accel standard deviations stay below
+    IMU_STATIC_GYRO_STD [rad/s] and IMU_STATIC_ACC_STD [m/s^2]; 0 if
+    none."""
+    if gyro_std_max is None:
+        gyro_std_max = float(os.environ.get('IMU_STATIC_GYRO_STD', '0.0087'))
+    if acc_std_max is None:
+        acc_std_max = float(os.environ.get('IMU_STATIC_ACC_STD', '0.2'))
+    step = max(n // 2, 1)
+    for i in range(0, max(len(imu_data) - n, 0) + 1, step):
+        w = imu_data[i:i + n]
+        g = np.std([im['gyro'] for im in w], axis=0)
+        a = np.std([im['acc'] for im in w], axis=0)
+        if np.max(g) < gyro_std_max and np.max(a) < acc_std_max:
+            return i
+    return 0
+
+
 def _sorted_sys_ids(sig_map):
     """Deterministic system-id iteration order (GPS=1, GLO=2, ...)."""
     return sorted(sig_map.keys(), key=int)
@@ -4320,7 +4339,16 @@ class GtsamRtkTc(GtsamRtk):
             gtsam.Rot3(self.R_enu2ecef), gtsam.Point3(*base_ecef))
 
         n_static = min(500, len(self.imu_data))
-        bias_acc, bias_gyro = estimate_stationary_bias(self.imu_data, n_static)
+        i_static = 0
+        if os.environ.get('IMU_STATIC_SEARCH', '0') == '1':
+            # WP57 (set by --reverse): the bias window must be parked. A
+            # backward pass starts at the run's end, which can be mid-turn
+            # (Tokyo 3: 4 deg/s yaw), and the bias random walk is too tight
+            # to recover from a bias taken there. Use the first window of
+            # n_static samples whose gyro and accel stay steady.
+            i_static = _static_window(self.imu_data, n_static)
+        bias_acc, bias_gyro = estimate_stationary_bias(
+            self.imu_data[i_static:], n_static)
         bias0 = gtsam.imuBias.ConstantBias(bias_acc, bias_gyro)
         self.tc_bias_init = bias0
 
