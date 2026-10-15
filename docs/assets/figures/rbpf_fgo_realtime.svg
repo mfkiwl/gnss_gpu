@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="590" viewBox="0 0 960 590" role="img" aria-labelledby="title desc">
+  <title id="title">RB-FGO-PF in real time on the six PPC 2024 runs</title>
+  <desc id="desc">Left: PPC OFFICIAL score (share of distance within 0.5 m) per run for one filter, the ensemble, and the ensemble with a 3D city map, with the PPC2024 winner's public and private scores. Right: wrong FIX as a share of FIX for the RB-FGO-PF ensemble and libgnss++ KF-RTK.</desc>
+  <rect width="960" height="590" rx="16" fill="#0d1117"/>
+  <g font-family="system-ui,-apple-system,'Segoe UI',sans-serif">
+    <text x="48" y="48" fill="#f0f6fc" font-size="25" font-weight="700">RB-FGO-PF in real time on the six PPC 2024 runs</text>
+    <text x="48" y="76" fill="#8b949e" font-size="14">No future observations · correct = 3D error under 0.5 m · one filter: mean of 3 seeds · one scorer for every system</text>
+    <text x="48" y="200.5" fill="#c9d1d9" font-size="13">Tokyo 1</text>
+    <text x="48" y="234.5" fill="#c9d1d9" font-size="13">Tokyo 2</text>
+    <text x="48" y="268.5" fill="#c9d1d9" font-size="13">Tokyo 3</text>
+    <text x="48" y="302.5" fill="#c9d1d9" font-size="13">Nagoya 1</text>
+    <text x="48" y="336.5" fill="#c9d1d9" font-size="13">Nagoya 2</text>
+    <text x="48" y="370.5" fill="#c9d1d9" font-size="13">Nagoya 3</text>
+    <text x="48" y="420.5" fill="#c9d1d9" font-size="13" font-weight="600">Mean of 6 runs</text>
+    <text x="48" y="456.5" fill="#c9d1d9" font-size="13">PPC2024 winner</text>
+    <line x1="48" y1="390" x2="920" y2="390" stroke="#30363d"/>
+    <text x="48" y="118" fill="#f0f6fc" font-size="17" font-weight="600">PPC OFFICIAL score (% of distance within 0.5 m) ↑</text>
+    <circle cx="54" cy="143" r="5" fill="#3987e5"/><text x="65" y="147.5" fill="#c9d1d9" font-size="12.5">One filter</text>
+    <circle cx="155.0" cy="143" r="5" fill="#d95926"/><text x="166.0" y="147.5" fill="#c9d1d9" font-size="12.5">Ensemble</text>
+    <circle cx="243.6" cy="143" r="5" fill="#199e70"/><text x="254.6" y="147.5" fill="#c9d1d9" font-size="12.5">Ensemble + 3D map</text>
+    <line x1="209.8" y1="176" x2="209.8" y2="468" stroke="#21262d"/>
+    <text x="209.8" y="486" fill="#8b949e" font-size="12" text-anchor="middle">60</text>
+    <line x1="305.3" y1="176" x2="305.3" y2="468" stroke="#21262d"/>
+    <text x="305.3" y="486" fill="#8b949e" font-size="12" text-anchor="middle">70</text>
+    <line x1="400.9" y1="176" x2="400.9" y2="468" stroke="#21262d"/>
+    <text x="400.9" y="486" fill="#8b949e" font-size="12" text-anchor="middle">80</text>
+    <line x1="496.4" y1="176" x2="496.4" y2="468" stroke="#21262d"/>
+    <text x="496.4" y="486" fill="#8b949e" font-size="12" text-anchor="middle">90</text>
+    <line x1="592.0" y1="176" x2="592.0" y2="468" stroke="#21262d"/>
+    <text x="592.0" y="486" fill="#8b949e" font-size="12" text-anchor="middle">100</text>
+    <line x1="450.6" y1="196" x2="517.5" y2="196" stroke="#30363d" stroke-width="2"/>
+    <circle cx="450.6" cy="196.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Tokyo 1: 85.2%</title></circle>
+    <circle cx="466.8" cy="196.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Tokyo 1: 86.9%</title></circle>
+    <circle cx="517.5" cy="196.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Tokyo 1: 92.2%</title></circle>
+    <text x="528.5" y="200.5" fill="#c9d1d9" font-size="12">92.2</text>
+    <line x1="531.8" y1="230" x2="555.7" y2="230" stroke="#30363d" stroke-width="2"/>
+    <circle cx="531.8" cy="230.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Tokyo 2: 93.7%</title></circle>
+    <circle cx="551.9" cy="230.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Tokyo 2: 95.8%</title></circle>
+    <circle cx="555.7" cy="230.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Tokyo 2: 96.2%</title></circle>
+    <text x="566.7" y="234.5" fill="#c9d1d9" font-size="12">96.2</text>
+    <line x1="518.4" y1="264" x2="538.5" y2="264" stroke="#30363d" stroke-width="2"/>
+    <circle cx="518.4" cy="264.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Tokyo 3: 92.3%</title></circle>
+    <circle cx="531.8" cy="264.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Tokyo 3: 93.7%</title></circle>
+    <circle cx="538.5" cy="264.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Tokyo 3: 94.4%</title></circle>
+    <text x="549.5" y="268.5" fill="#c9d1d9" font-size="12">94.4</text>
+    <line x1="374.1" y1="298" x2="416.2" y2="298" stroke="#30363d" stroke-width="2"/>
+    <circle cx="374.1" cy="298.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Nagoya 1: 77.2%</title></circle>
+    <circle cx="402.8" cy="298.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Nagoya 1: 80.2%</title></circle>
+    <circle cx="416.2" cy="298.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Nagoya 1: 81.6%</title></circle>
+    <text x="427.2" y="302.5" fill="#c9d1d9" font-size="12">81.6</text>
+    <line x1="185.9" y1="332" x2="229.8" y2="332" stroke="#30363d" stroke-width="2"/>
+    <circle cx="185.9" cy="332.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Nagoya 2: 57.5%</title></circle>
+    <circle cx="220.3" cy="332.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Nagoya 2: 61.1%</title></circle>
+    <circle cx="229.8" cy="332.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Nagoya 2: 62.1%</title></circle>
+    <text x="240.8" y="336.5" fill="#c9d1d9" font-size="12">62.1</text>
+    <line x1="436.2" y1="366" x2="506.0" y2="366" stroke="#30363d" stroke-width="2"/>
+    <circle cx="436.2" cy="366.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, Nagoya 3: 83.7%</title></circle>
+    <circle cx="500.3" cy="366.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, Nagoya 3: 90.4%</title></circle>
+    <circle cx="506.0" cy="366.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, Nagoya 3: 91.0%</title></circle>
+    <text x="517.0" y="370.5" fill="#c9d1d9" font-size="12">91.0</text>
+    <line x1="416.2" y1="416" x2="461.1" y2="416" stroke="#30363d" stroke-width="2"/>
+    <circle cx="416.2" cy="416.0" r="5" fill="#3987e5" stroke="#0d1117" stroke-width="2"><title>One filter, mean of 6 runs: 81.6%</title></circle>
+    <circle cx="445.8" cy="416.0" r="5" fill="#d95926" stroke="#0d1117" stroke-width="2"><title>Ensemble, mean of 6 runs: 84.7%</title></circle>
+    <circle cx="461.1" cy="416.0" r="5" fill="#199e70" stroke="#0d1117" stroke-width="2"><title>Ensemble + 3D map, mean of 6 runs: 86.3%</title></circle>
+    <text x="405.2" y="420.5" fill="#c9d1d9" font-size="12" text-anchor="end">81.6</text>
+    <text x="445.8" y="405.0" fill="#c9d1d9" font-size="12" text-anchor="middle">84.7</text>
+    <text x="472.1" y="420.5" fill="#f0f6fc" font-size="12" font-weight="700">86.3</text>
+    <line x1="388.5" y1="452" x2="454.4" y2="452" stroke="#30363d" stroke-width="2"/>
+    <circle cx="388.5" cy="452" r="5" fill="#0d1117" stroke="#f0f6fc" stroke-width="2"><title>PPC2024 winner, public half: 78.7%</title></circle>
+    <circle cx="454.4" cy="452" r="5" fill="#0d1117" stroke="#f0f6fc" stroke-width="2"><title>PPC2024 winner, hidden half (ranked): 85.6%</title></circle>
+    <text x="377.5" y="456.5" fill="#c9d1d9" font-size="12" text-anchor="end">78.7 public</text>
+    <text x="465.4" y="456.5" fill="#c9d1d9" font-size="12">85.6 hidden half</text>
+    <text x="668" y="118" fill="#f0f6fc" font-size="17" font-weight="600">Wrong FIX (% of FIX) ↓</text>
+    <rect x="668" y="137" width="12" height="12" rx="2" fill="#199e70"/><text x="686" y="147.5" fill="#c9d1d9" font-size="12.5">RB-FGO-PF (ensemble + 3D map)</text>
+    <rect x="668" y="155" width="12" height="12" rx="2" fill="#6e7681"/><text x="686" y="165.5" fill="#c9d1d9" font-size="12.5">libgnss++ KF-RTK</text>
+    <line x1="668.0" y1="176" x2="668.0" y2="432" stroke="#30363d"/>
+    <text x="668.0" y="486" fill="#8b949e" font-size="12" text-anchor="middle">0</text>
+    <line x1="745.3" y1="176" x2="745.3" y2="432" stroke="#21262d"/>
+    <text x="745.3" y="486" fill="#8b949e" font-size="12" text-anchor="middle">10</text>
+    <line x1="822.7" y1="176" x2="822.7" y2="432" stroke="#21262d"/>
+    <text x="822.7" y="486" fill="#8b949e" font-size="12" text-anchor="middle">20</text>
+    <line x1="900.0" y1="176" x2="900.0" y2="432" stroke="#21262d"/>
+    <text x="900.0" y="486" fill="#8b949e" font-size="12" text-anchor="middle">30</text>
+    <rect x="668" y="186.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Tokyo 1: 0.00% of FIX wrong, 62.0% of epochs correct FIX</title></rect>
+    <text x="675.0" y="194.5" fill="#c9d1d9" font-size="11">0.00</text>
+    <path d="M668,197.0 H732.7 Q735.7,197.0 735.7,200.0 V203.0 Q735.7,206.0 732.7,206.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Tokyo 1: 8.76% of FIX wrong, 68.0% of epochs correct FIX</title></path>
+    <text x="740.7" y="205.5" fill="#c9d1d9" font-size="11">8.8</text>
+    <rect x="668" y="220.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Tokyo 2: 0.00% of FIX wrong, 82.3% of epochs correct FIX</title></rect>
+    <text x="675.0" y="228.5" fill="#c9d1d9" font-size="11">0.00</text>
+    <path d="M668,231.0 H678.9 Q681.9,231.0 681.9,234.0 V237.0 Q681.9,240.0 678.9,240.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Tokyo 2: 1.80% of FIX wrong, 76.7% of epochs correct FIX</title></path>
+    <text x="686.9" y="239.5" fill="#c9d1d9" font-size="11">1.8</text>
+    <rect x="668" y="254.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Tokyo 3: 0.00% of FIX wrong, 77.8% of epochs correct FIX</title></rect>
+    <text x="675.0" y="262.5" fill="#c9d1d9" font-size="11">0.00</text>
+    <path d="M668,265.0 H688.3 Q691.3,265.0 691.3,268.0 V271.0 Q691.3,274.0 688.3,274.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Tokyo 3: 3.01% of FIX wrong, 71.6% of epochs correct FIX</title></path>
+    <text x="696.3" y="273.5" fill="#c9d1d9" font-size="11">3.0</text>
+    <rect x="668" y="288.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Nagoya 1: 0.00% of FIX wrong, 70.0% of epochs correct FIX</title></rect>
+    <text x="675.0" y="296.5" fill="#c9d1d9" font-size="11">0.00</text>
+    <path d="M668,299.0 H779.5 Q782.5,299.0 782.5,302.0 V305.0 Q782.5,308.0 779.5,308.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Nagoya 1: 14.80% of FIX wrong, 64.9% of epochs correct FIX</title></path>
+    <text x="787.5" y="307.5" fill="#c9d1d9" font-size="11">14.8</text>
+    <rect x="668" y="322.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Nagoya 2: 0.06% of FIX wrong, 52.0% of epochs correct FIX</title></rect>
+    <text x="675.0" y="330.5" fill="#c9d1d9" font-size="11">0.06</text>
+    <path d="M668,333.0 H681.6 Q684.6,333.0 684.6,336.0 V339.0 Q684.6,342.0 681.6,342.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Nagoya 2: 2.15% of FIX wrong, 48.6% of epochs correct FIX</title></path>
+    <text x="689.6" y="341.5" fill="#c9d1d9" font-size="11">2.1</text>
+    <rect x="668" y="356.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Nagoya 3: 0.00% of FIX wrong, 31.4% of epochs correct FIX</title></rect>
+    <text x="675.0" y="364.5" fill="#c9d1d9" font-size="11">0.00</text>
+    <path d="M668,367.0 H892.4 Q895.4,367.0 895.4,370.0 V373.0 Q895.4,376.0 892.4,376.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Nagoya 3: 29.40% of FIX wrong, 29.8% of epochs correct FIX</title></path>
+    <text x="900.4" y="375.5" fill="#c9d1d9" font-size="11">29.4</text>
+    <rect x="668" y="406.0" width="2.0" height="9" fill="#199e70"><title>RB-FGO-PF (ensemble + 3D map), Mean of 6 runs: 0.01% of FIX wrong, 62.6% of epochs correct FIX</title></rect>
+    <text x="675.0" y="414.5" fill="#c9d1d9" font-size="11">0.01</text>
+    <path d="M668,417.0 H742.2 Q745.2,417.0 745.2,420.0 V423.0 Q745.2,426.0 742.2,426.0 H668 Z" fill="#6e7681"><title>libgnss++ KF-RTK, Mean of 6 runs: 9.99% of FIX wrong, 59.9% of epochs correct FIX</title></path>
+    <text x="750.2" y="425.5" fill="#c9d1d9" font-size="11">10.0</text>
+    <text x="668" y="514" fill="#8b949e" font-size="12">Correct FIX (% of epochs), mean:</text>
+    <text x="668" y="530" fill="#8b949e" font-size="12">RB-FGO-PF 62.6 · KF-RTK 59.9</text>
+    <text x="48" y="552" fill="#8b949e" font-size="11.5">Ensemble: 4 filters run side by side; per epoch, a classifier trained on the other five runs picks one of their positions.</text>
+    <text x="48" y="570" fill="#8b949e" font-size="11.5">3D map: + 3 filters that drop satellites a PLATEAU ray trace marks as blocked. PPC2024 ranked teams on a hidden half of these runs: not like-for-like.</text>
+  </g>
+</svg>

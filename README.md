@@ -54,116 +54,74 @@ python tools/build_release_bundle.py --output dist/reproducibility --archive dis
 
 ## RB-FGO-PF: integer ambiguity without premature collapse
 
-Particles carry integer ambiguity hypotheses ("basins") on one shared float
-GNSS/IMU factor graph (GTSAM), so a wrong fix competes with the right one
-instead of being locked in by a ratio test. Six PPC runs, one scorer: a FIX
-is correct within 0.5 m (3D), over all rover epochs. WP56 keeps wrong FIX at
-or below 0.08% on every run and seed. Its real-time output uses no future
-data; a 15 s fixed lag adds 3.4–10.1 pp, and the post-processed output
-(a second, backward pass) 4.9–24.1 pp at 0.24% wrong or less.
+Urban RTK usually commits to carrier integers after a ratio test, and a
+wrong fix then stays until something notices it. RB-FGO-PF keeps every
+carrier ambiguity float in one GNSS/IMU factor graph (GTSAM) and lets
+particles carry the integer hypotheses ("basins"), so a wrong fix keeps
+competing with the right one. Results are on the six PPC 2024 runs (Tokyo
+1–3, Nagoya 1–3) in real time: each epoch uses only past and current
+observations, as the challenge required.
 
-| Correct FIX (wrong / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
+<p align="center">
+  <img src="docs/assets/figures/rbpf_fgo_realtime.svg" alt="Real-time PPC OFFICIAL score per run for one RB-FGO-PF filter, the ensemble and the ensemble with a 3D city map, next to the PPC2024 winner's scores, and the wrong-FIX share of RB-FGO-PF and libgnss++ KF-RTK on the six Tokyo and Nagoya runs" width="900">
+</p>
+
+| PPC OFFICIAL, real time (% of distance within 0.5 m) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 | Mean |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| One filter (3-seed mean) | 85.2 | 93.7 | 92.3 | 77.2 | 57.5 | 83.7 | 81.6 |
+| Ensemble of 4 filters | 86.9 | 95.8 | 93.7 | 80.2 | 61.1 | 90.4 | 84.7 |
+| **Ensemble + 3D city map (7 filters)** | **92.2** | **96.2** | **94.4** | **81.6** | **62.1** | **91.0** | **86.3** |
+
+The PPC2024 winner (TURING) scored 85.6% on the hidden half it was ranked on
+and 78.7% on the public half.
+
+| Correct FIX / epochs (wrong FIX / FIX) | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
 |---|---:|---:|---:|---:|---:|---:|
 | inuex35 TC-FGO (local reproduction) | 46.7% (5.72%) | 59.7% (1.78%) | 58.2% (2.06%) | – | – | – |
 | libgnss++ GTSAM FGO | 37.7% (29.9%) | 77.3% (1.57%) | 68.2% (1.56%) | – | – | – |
 | libgnss++ KF-RTK (`ppc-demo`, low-cost preset) | 68.0% (8.76%) | 76.7% (1.80%) | 71.6% (3.01%) | 64.9% (14.8%) | 48.6% (2.15%) | 29.8% (29.4%) |
-| RB-FGO-PF WP43 (3 seeds) | 35.4% (0.33%) | 64.1% (0.16%) | 68.5% (0.10%) | – | – | – |
-| RB-FGO-PF WP45, Tokyo-selected label (3 seeds) | 66.6% (0.56%) | 83.9% (0.09%) | 84.3% (0.04%) | 69.3% (0.70%) | 53.4% (8.53%) | 18.5% (16.2%) |
-| RB-FGO-PF WP46 (3 seeds) | 56.1% (0.02%) | 76.4% (0.02%) | 75.8% (0.00%) | 61.0% (0.03%) | 46.5% (0.21%) | 12.3% (6.15%) |
-| RB-FGO-PF WP47 (3 seeds) | 56.9% (0.01%) | 78.0% (0.01%) | 76.1% (0.04%) | 65.4% (0.01%) | 46.3% (0.71%) | 26.3% (0.49%) |
-| RB-FGO-PF WP48 (3 seeds) | 56.4% (0.01%) | 78.7% (0.01%) | 74.8% (0.03%) | 66.5% (0.06%) | 47.8% (0.54%) | 27.4% (0.07%) |
-| RB-FGO-PF WP50, real time (3 seeds) | 63.1% (0.05%) | 82.8% (0.02%) | 78.8% (0.00%) | 70.6% (0.00%) | 52.2% (0.13%) | 31.0% (0.04%) |
-| RB-FGO-PF WP50, 15 s fixed lag (3 seeds) | 67.3% (0.05%) | 85.7% (0.02%) | 82.5% (0.00%) | 75.3% (0.00%) | 55.4% (0.13%) | 41.6% (0.03%) |
-| RB-FGO-PF WP51, forward + backward, post-processed (3 seeds) | 69.3% (0.10%) | 87.1% (0.02%) | 83.6% (0.02%) | 79.9% (0.00%) | 56.8% (0.23%) | 55.8% (0.16%) |
-| **RB-FGO-PF WP56, real time (3 seeds)** | **62.9% (0.04%)** | **82.2% (0.02%)** | **78.6% (0.00%)** | **70.5% (0.00%)** | **52.0% (0.07%)** | **30.8% (0.00%)** |
-| **RB-FGO-PF WP56, 15 s fixed lag (3 seeds)** | **67.3% (0.04%)** | **85.7% (0.02%)** | **82.5% (0.00%)** | **75.3% (0.00%)** | **55.4% (0.07%)** | **40.9% (0.00%)** |
-| RB-FGO-PF WP56, forward + backward, post-processed (3 seeds) | 69.3% (0.10%) | 87.1% (0.02%) | 84.6% (0.05%) | 79.9% (0.00%) | 56.9% (0.18%) | 54.9% (0.14%) |
-| **RB-FGO-PF WP57, forward + backward, post-processed (3 seeds)** | **69.6% (0.10%)** | **87.1% (0.02%)** | **85.3% (0.02%)** | **79.9% (0.00%)** | **56.9% (0.18%)** | **54.9% (0.14%)** |
+| **RB-FGO-PF, real time** | **62.0% (0.00%)** | **82.3% (0.00%)** | **77.8% (0.00%)** | **70.0% (0.00%)** | **52.0% (0.06%)** | **31.4% (0.00%)** |
 
-<p align="center">
-  <img src="docs/assets/figures/rbpf_fgo_tokyo.svg" alt="Correct FIX and wrong-FIX share of RB-FGO-PF WP57 (post-processed forward and backward pass), WP56 (real time with a 15 s fixed lag, and real time) and libgnss++ KF-RTK on the six Tokyo and Nagoya PPC runs" width="900">
-</p>
+A FIX is correct when its 3D error is under 0.5 m; one script scores every
+system.
 
 ```mermaid
 flowchart TD
-    Obs["Epoch k: rover/base GNSS + IMU<br/>two-band satellites: code + carrier<br/>one-band satellites: code only"] --> FGO["Shared fixed-lag FGO (GTSAM), kept float<br/>IMU preintegration, DD pseudorange (Huber, C/N0),<br/>DD carrier (Huber), NHC / ZUPT / Doppler velocity"]
-    FGO --> Marg["Joint marginal:<br/>float position + DD ambiguities (y, Q)"]
-    Marg --> Cand["Top-K integer candidates (MLAMBDA, K = 12)"]
-    Marg --> Spawn["Outage re-entry: DD-pseudorange position prior<br/>x top-K candidates under that prior"]
-    PF["N = 64 particles<br/>each = held DD integers (basin) + log weight"] --> Moves
-    Cand --> Moves["Moves per particle:<br/>survive / extend / adopt candidate / release"]
-    Spawn --> Moves
-    Moves --> Cond["Condition the shared Gaussian on held integers<br/>x given z = x_float - Q_xz Q_zz^-1 (y - z)"]
-    Cond --> W["Weight += tempered likelihood of<br/>this epoch's DD pseudorange / carrier"]
-    W --> Res["Resample when ESS falls below N/2<br/>(systematic, stratified by basin)"]
-    Res --> Gamma["gamma = posterior mass of the MAP basin"]
-    Moves --> Track["Each lineage's position belief:<br/>IMU-predicted, updated with its own integers"]
-    Res -. next epoch .-> PF
-    Res --> Agree["Per-pair agreement mass of the MAP basin<br/>(all particles, and the non-empty ones)"]
-    Agree --> Dec{"enter: 15+ pairs above 0.99 (or the graph's LAMBDA fix)<br/>for 5 epochs, DD-PR quality at most 1.0;<br/>stay: 6+ pairs above 0.90;<br/>the float / DD-PR / fix guards agree,<br/>and the fix is within 0.5 m of the graph float?"}
-    Dec -- yes --> Fix["Report FIX"]
-    Dec -- no --> Carry{"Last FIX's integer set still fits<br/>the DD carrier (8+ pairs, 0.15 cycle)?"}
-    Carry -- yes --> CFix["Report FIX at the carried-integer position"]
-    Carry -- no --> Flt["Report FLOAT"]
-    Track --> Pos["Reported position: MAP basin's tracked belief<br/>(IMU dead reckoning on abandoned epochs)"]
-    Fix --> Pos
-    Flt --> Pos
-    Gamma -- "gamma-gated consensus integers" --> FB["Feedback: hold them in the shared graph;<br/>release when the PF withdraws its mass"]
-    FB -.-> FGO
+    subgraph F["Each of 4 to 7 filters"]
+        G["Shared float factor graph (GTSAM)<br/>IMU, DD code and carrier"] --> K["Top-K integer candidates"]
+        K --> P["64 particles, each an integer set (basin),<br/>weighted by the carrier fit and resampled"]
+        P -.->|"agreed integers"| G
+        P --> L["FIX label"]
+        P --> C["Position candidates"]
+    end
+    Obs["Rover + base GNSS, IMU"] --> G
+    Map["PLATEAU 3D city model<br/>(map-aided filters only)"] -.->|"blocked satellites"| G
+    C --> E["Per-epoch choice:<br/>classifier + height bias"]
+    L --> E
+    E --> Out["Position + FIX / FLOAT"]
 ```
 
-Slips and outages remove the affected ambiguity from every particle.
+- **Filter.** Each particle holds one set of double-differenced integers and
+  is weighted by how well it fits this epoch's carrier and code; resampling
+  drops sets that stop fitting. FIX is reported when the particles agree on
+  the integers and the fix stays within 0.5 m of the graph's float position;
+  an accepted integer set is kept while it still fits the carrier.
+- **Ensemble.** Filters with different seeds, and one that also uses
+  one-band carriers, run side by side. Each epoch a classifier, trained on
+  the other five runs, picks one of their positions. Unfixed positions are
+  lowered by 0.10–0.15 m, because reflected signals lift the float solution
+  in street canyons. The FIX label comes from the four map-free filters.
+- **3D city map (optional).** Three more filters trace a ray from the
+  predicted antenna position to each satellite through the PLATEAU building
+  models and drop or down-weight blocked satellites
+  ([`plateau_los.py`](experiments/rbpf_fgo/plateau_los.py), CPU).
 
-| Shipped RB-FGO-PF (WP56 / WP57) quality, 3-seed mean | Tokyo 1 | Tokyo 2 | Tokyo 3 | Nagoya 1 | Nagoya 2 | Nagoya 3 |
-|---|---:|---:|---:|---:|---:|---:|
-| Correct FIX / rover epochs, real time | 62.9% | 82.2% | 78.6% | 70.5% | 52.0% | 30.8% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.04%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.07% (0.08%) | 0.00% (0.00%) |
-| Correct FIX, 15 s fixed lag | 67.3% | 85.7% | 82.5% | 75.3% | 55.4% | 40.9% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.04% (0.04%) | 0.02% (0.03%) | 0.00% (0.00%) | 0.00% (0.00%) | 0.07% (0.08%) | 0.00% (0.00%) |
-| Correct FIX, post-processed (WP51 backward pass) | 69.6% | 87.1% | 85.3% | 79.9% | 56.9% | 54.9% |
-| Wrong FIX / FIX ↓ (worst seed) | 0.10% (0.18%) | 0.02% (0.03%) | 0.02% (0.05%) | 0.00% (0.00%) | 0.18% (0.24%) | 0.14% (0.18%) |
-| PPC OFFICIAL (position only), real time (WP55 choice) | 85.5% | 93.7% | 92.3% | 77.2% | 57.5% | 83.7% |
-| PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.3% | 75.0% | 57.8% | 79.3% |
-| PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.1% | 95.6% | 95.2% | 79.5% | 64.3% | 90.9% |
-| PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
-| PPC OFFICIAL, real time, ensemble of 4 runs (WP59, map-free) | 86.9% | 95.8% | 93.7% | 80.2% | 61.1% | 90.4% |
-| PPC OFFICIAL, real time, + 3 PLATEAU-NLOS runs (WP60, map-aided) | 92.2% | 96.2% | 94.4% | 81.6% | 62.1% | 91.0% |
-
-WP45 added the two-band satellite set and basin persistence, WP47 one-band
-code-only satellites, WP48 Huber / C/N0 weighting and Doppler v2, WP50 the
-hysteresis label and integer carry. WP51 reruns the filter on the
-time-mirrored run and keeps the backward fixes the forward label confirms;
-both passes fall into Nagoya 2's wrong basin, so their agreement alone is
-never a FIX. WP54 then reports, on unfixed epochs, whichever of the
-forward, backward or float positions best fits the carrier modulo whole
-cycles: PPC OFFICIAL averages 86.3% over the six runs (WP51: 81.5%).
-That output uses future data. Under the PPC2024 rules (real time, no future
-observations) the comparable number is the real-time 81.6%; the winner
-scored 85.6% on the hidden half and 78.7% on the public half. FIX numbers score the `.pos` output as written (the WP50 numbers
-first published also dropped guard-failing carried epochs). No external RTK
-engine feeds the FIX label. WP55 applies the same choice in real time over
-the last 6 epochs: PPC OFFICIAL 81.6% (WP50: 79.9%). WP56 (the default)
-withholds the FIX label while the fix is more than 0.5 m from the graph's
-float. On the backward pass, which the label was not tuned on, Nagoya 1's
-wrong share falls from 1.23% to 0.04%, for 0.25 pp fewer real-time fixes;
-PPC OFFICIAL does not change. WP57 takes the backward pass's IMU bias from
-a parked window instead of the run's end (mid-turn on Tokyo 3): backward
-Tokyo 3 rises from 59.9% to 80.0% correct FIX, and post-processed PPC
-OFFICIAL from 85.9% to 86.3%.
-WP59 runs several forward filters side by side (three seeds and a one-band
-carrier variant) and picks one of their positions every epoch, still in real
-time: a classifier trained on the other five runs scores each candidate, and
-unfixed outputs drop by a 0.10–0.15 m height bias (street canyons lift the
-float). PPC OFFICIAL 84.7% (mean of the six runs). WP60 adds three runs that
-ray-trace the PLATEAU 3D city model from the predicted antenna position each
-epoch and drop or down-weight line-of-sight-blocked satellites
-([`plateau_los.py`](experiments/rbpf_fgo/plateau_los.py), CPU): 86.3%, above
-the winner's 85.6% private score, at most 0.06% wrong FIX (the label comes
-from the map-free runs). Not like-for-like: the choice was trained on these
-six runs, and the map is extra data. Nagoya 2's 375 s canyon stays off by
-meters for every run (`rt_ensemble.py`).
-`RBPF_SHIP=wp55` … `wp43` reproduce earlier releases;
-`PPC_CITY=nagoya` selects the Nagoya lever arm. Details:
+Not like-for-like with PPC2024: teams were ranked on a hidden half of these
+runs, our classifier and height bias were trained on them (leaving out the
+run being scored), and the 3D map is extra data. Nagoya 2's 375 s street
+canyon stays meters off for every filter. Ensemble scores:
+[`rt_ensemble.py`](experiments/rbpf_fgo/rt_ensemble.py). Details, including
+offline outputs (15 s lag, backward pass):
 [technical report](docs/rbpf_fgo_report.md) ·
 [benchmark record](internal_docs/inuex35_tc_fgo_benchmark.md) ·
 [design](internal_docs/rbpf_fgo_design.md) ·
