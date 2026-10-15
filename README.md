@@ -126,6 +126,8 @@ Slips and outages remove the affected ambiguity from every particle.
 | PPC OFFICIAL, 15 s fixed lag | 84.6% | 94.2% | 92.3% | 75.0% | 57.8% | 79.3% |
 | PPC OFFICIAL, post-processed (WP51 + WP54 float selection) | 92.1% | 95.6% | 95.2% | 79.5% | 64.3% | 90.9% |
 | PPC OFFICIAL, WP47 | 80.5% | 91.8% | 88.3% | 66.9% | 55.1% | 71.0% |
+| PPC OFFICIAL, real time, ensemble of 4 runs (WP59, map-free) | 86.9% | 95.8% | 93.7% | 80.2% | 61.1% | 90.4% |
+| PPC OFFICIAL, real time, + 3 PLATEAU-NLOS runs (WP60, map-aided) | 92.2% | 96.2% | 94.4% | 81.6% | 62.1% | 91.0% |
 
 WP45 added the two-band satellite set and basin persistence, WP47 one-band
 code-only satellites, WP48 Huber / C/N0 weighting and Doppler v2, WP50 the
@@ -148,6 +150,18 @@ PPC OFFICIAL does not change. WP57 takes the backward pass's IMU bias from
 a parked window instead of the run's end (mid-turn on Tokyo 3): backward
 Tokyo 3 rises from 59.9% to 80.0% correct FIX, and post-processed PPC
 OFFICIAL from 85.9% to 86.3%.
+WP59 runs several forward filters side by side (three seeds and a one-band
+carrier variant) and picks one of their positions every epoch, still in real
+time: a classifier trained on the other five runs scores each candidate, and
+unfixed outputs drop by a 0.10–0.15 m height bias (street canyons lift the
+float). PPC OFFICIAL 84.7% (mean of the six runs). WP60 adds three runs that
+ray-trace the PLATEAU 3D city model from the predicted antenna position each
+epoch and drop or down-weight line-of-sight-blocked satellites
+([`plateau_los.py`](experiments/rbpf_fgo/plateau_los.py), CPU): 86.3%, above
+the winner's 85.6% private score, at most 0.06% wrong FIX (the label comes
+from the map-free runs). Not like-for-like: the choice was trained on these
+six runs, and the map is extra data. Nagoya 2's 375 s canyon stays off by
+meters for every run (`rt_ensemble.py`).
 `RBPF_SHIP=wp55` … `wp43` reproduce earlier releases;
 `PPC_CITY=nagoya` selects the Nagoya lever arm. Details:
 [technical report](docs/rbpf_fgo_report.md) ·

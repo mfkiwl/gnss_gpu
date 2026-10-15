@@ -260,6 +260,9 @@ def _load_nlos_mask(run):
         r"C:\Users\rsasa\Workspace\old\gnss_gpu\experiments\results"
         r"\plateau_nlos_phase33")
     path = Path(mask_dir) / f"tokyo_run{run}_per_epoch_nlos.csv"
+    # WP60: NLOS_MASK_FILE names the mask directly (any city)
+    if os.environ.get('NLOS_MASK_FILE'):
+        path = Path(os.environ['NLOS_MASK_FILE'])
     mask = {}
     n_rows = 0
     n_nlos = 0
@@ -387,6 +390,10 @@ class GtsamRtk(rtkpos):
         # carrier is blanked): they keep a narrow-sky graph solvable
         # without adding low-quality ambiguities
         self.qc_any_band_code_only = int(os.environ.get('QC_ANY_BAND_CODE_ONLY', '0'))
+        # WP59: with QC_ANY_BAND_CODE_ONLY=0, a rover one-band satellite
+        # keeps its carrier on a band only at QC_ANY_BAND_CP_CNR dB-Hz or
+        # more (0 = no gate); the ensemble's one-band member uses 40
+        self.qc_any_band_cp_cnr = float(os.environ.get('QC_ANY_BAND_CP_CNR', '0'))
         # WP47: DD-pseudorange sigma multiplier for pairs involving a
         # one-band satellite, rover or base (1 = unchanged)
         self.qc_any_band_pr_scale = float(os.environ.get('QC_ANY_BAND_PR_SCALE', '1'))
@@ -1183,7 +1190,24 @@ class GtsamRtk(rtkpos):
         # 0=off, 1=hard-exclude the DD-PR/DD-CP factor, 2=inflate its sigma
         # by NLOS_MEAS_SIGMA_MULT.
         self.nlos_meas_mode = int(os.environ.get('NLOS_MEAS_MODE', '0'))
+        # WP60: pick the DD reference among map-LOS satellites
+        self.nlos_ref_los = int(os.environ.get('NLOS_REF_LOS', '0'))
+        # WP60 NLOS_ONLINE=1: ray-trace the PLATEAU mesh (NLOS_TRI_NPZ, the
+        # load_plateau triangle cache) from this epoch's IMU-predicted
+        # antenna position instead of reading a precomputed mask; an epoch
+        # whose receiver looks enclosed by a building keeps the previous
+        # epoch's NLOS set
+        self.nlos_online = int(os.environ.get('NLOS_ONLINE', '0'))
+        self._los_tracer = None
+        self._nlos_online_prev = frozenset()
+        self.nlos_online_inside = 0
+        if self.nlos_online and os.environ.get('NLOS_TRI_NPZ'):
+            from plateau_los import GridTracer
+            with np.load(os.environ['NLOS_TRI_NPZ']) as _z:
+                self._los_tracer = GridTracer(_z['triangles'])
+            self.nlos_enable = 1
         self.nlos_meas_sigma_mult = float(os.environ.get('NLOS_MEAS_SIGMA_MULT', '5.0'))
+        self.nlos_hybrid_min_los = int(os.environ.get('NLOS_HYBRID_MIN_LOS', '6'))
         # Fraction of this epoch's ACTIVE candidates that must be
         # NLOS-flagged before the whole-epoch Q=4 report is refused (layer
         # (c), second half). Default 0.5 = strict majority; 0.0 = refuse
@@ -1192,7 +1216,7 @@ class GtsamRtk(rtkpos):
         self._nlos_by_tow = {}
         self._nlos_mask_n_rows = 0
         self._nlos_mask_n_nlos = 0
-        if self.nlos_enable:
+        if self.nlos_enable and self._los_tracer is None:
             run_n = int(os.environ.get('NLOS_RUN', '0'))
             if run_n in (1, 2, 3):
                 (self._nlos_by_tow, self._nlos_mask_n_rows,
@@ -3495,6 +3519,14 @@ class GtsamRtk(rtkpos):
                 elif one_band and self.qc_any_band_code_only:
                     obs.L[j, f] = 0.0
             keep.append(s_)
+        if rover and self.qc_any_band_cp_cnr > 0 and self._one_band_rov:
+            nf_g = min(nf, obs.L.shape[1], obs.S.shape[1])
+            for j, s_ in enumerate(obs.sat):
+                if int(s_) in self._one_band_rov:
+                    for f in range(nf_g):
+                        if (obs.L[j, f] != 0.0
+                                and float(obs.S[j, f]) < self.qc_any_band_cp_cnr):
+                            obs.L[j, f] = 0.0
         return np.array(sorted(keep), dtype=int)
 
     def process(self, obs, cs=None, orb=None, bsx=None, obsb=None):
@@ -3725,6 +3757,15 @@ class GtsamRtkTc(GtsamRtk):
 
         self.phase = 1
         self.phase1_epochs = int(os.environ.get('PHASE1_EPOCHS', '40'))
+        # WP59: fewest common satellites a phase-2 epoch is committed with
+        self.p2_min_ns = int(os.environ.get('P2_MIN_NS', '6'))
+        # WP59: P2_IMU_ONLY=1 commits an epoch that would be abandoned (no
+        # DD build, too few satellites, or fewer than 4 DD rows) with the
+        # IMU factor, NHC/ZUPT and whatever DD rows it has, instead of
+        # skipping it; such epochs skip AR, sanity, FDE and the PF step
+        self.p2_imu_only = int(os.environ.get('P2_IMU_ONLY', '0'))
+        self._last_imu_only = False
+        self.imu_only_count = 0
         self._phase1_hist = []  # [(obs.t, ecef), ...] committed Phase-1 epochs
 
         lever_str = os.environ.get('LEVER_ARM', '0.31,0,0.55')
@@ -3883,6 +3924,14 @@ class GtsamRtkTc(GtsamRtk):
         self.dop_outlier = float(os.environ.get('DOP_V2_OUTLIER_M_S', '0.5'))
         self.dop_sig_floor = float(os.environ.get('DOP_SIG_FLOOR', '0.05'))
         self.dop_cov_scale = float(os.environ.get('DOP_COV_SCALE', '1.0'))
+        # WP59: Doppler rows from 2-4 satellites (too few for the v2 LS
+        # with a clock-drift unknown) as a clock-eliminated, rank-deficient
+        # velocity prior: DOP_LOWSAT_SIG [m/s] per-row sigma at 45 dB-Hz
+        # (0 = off), DOP_LOWSAT_GATE [m/s] largest disagreement with the
+        # IMU-predicted velocity along any observed direction
+        self.dop_lowsat_sig = float(os.environ.get('DOP_LOWSAT_SIG', '0'))
+        self.dop_lowsat_gate = float(os.environ.get('DOP_LOWSAT_GATE', '1.0'))
+        self._doppler_lowsat_count = 0
         self._nhc_fire_count = 0
         self._zupt_fire_count = 0
         self._doppler_fire_count = 0
@@ -4174,7 +4223,8 @@ class GtsamRtkTc(GtsamRtk):
                 obs.D[_geo, :] = 0.0
         if self.dop_v2:
             return self._add_doppler_vel_prior_v2(
-                graph, ep, obs, rs, vs, iu, sat, pos_pred_ecef, rot_nb, omega_b)
+                graph, ep, obs, rs, vs, iu, sat, pos_pred_ecef, rot_nb, omega_b,
+                vel_pred_enu=vel_pred_enu)
         v_dop_ecef, _clkdr, dop_ok, dop_res, _dop_n = _tc_doppler_velocity_ls(
             obs, obs_sd, rs, vs, iu, sat, pos_pred_ecef,
             nav_nf=self.nav.nf,
@@ -4201,7 +4251,7 @@ class GtsamRtkTc(GtsamRtk):
         return True
 
     def _add_doppler_vel_prior_v2(self, graph, ep, obs, rs, vs, iu, sat,
-                                  pos_ecef, rot_nb, omega_b):
+                                  pos_ecef, rot_nb, omega_b, vel_pred_enu=None):
         """WP48 Doppler velocity prior (DOP_V2=1): per-satellite rover
         Doppler rows without GLONASS and BeiDou GEO, C/N0-weighted LS
         (weight 10^((min(C/N0, 45) - 45) / 10)) with iterative rejection
@@ -4243,6 +4293,11 @@ class GtsamRtkTc(GtsamRtk):
                 c = 0.0
             w.append(10.0 ** ((min(c, 45.0) - 45.0) / 10.0) if c > 0 else 0.1)
         if len(b) < 5:
+            if (self.dop_lowsat_sig > 0 and len(b) >= 2
+                    and vel_pred_enu is not None):
+                return self._add_doppler_lowsat(
+                    graph, ep, np.asarray(A), np.asarray(b), np.asarray(w),
+                    np.asarray(vel_pred_enu, dtype=float), rot_nb, omega_b)
             return False
         A = np.asarray(A); b = np.asarray(b); w = np.asarray(w)
         keep = np.ones(len(b), dtype=bool)
@@ -4283,6 +4338,59 @@ class GtsamRtkTc(GtsamRtk):
         graph.add(gtsam.PriorFactorVector(
             self.PV(ep), v_enu, gtsam.noiseModel.Gaussian.Covariance(cov_enu)))
         self._doppler_fire_count += 1
+        return True
+
+    def _add_doppler_lowsat(self, graph, ep, A, b, w, vel_pred_enu,
+                            rot_nb, omega_b):
+        """WP59: 2-4 Doppler rows. The clock drift is eliminated (rows
+        centred on their weighted mean), leaving information on the
+        velocity along at most k-1 directions; the prior is that
+        information with the IMU-predicted velocity filling the
+        unobserved directions (variance 1e4). Skipped when any observed
+        direction disagrees with the prediction by more than
+        DOP_LOWSAT_GATE."""
+        E = A[:, :3]
+        wd = w / self.dop_lowsat_sig ** 2
+        sw = wd.sum()
+        if sw <= 0:
+            return False
+        e_bar = (wd[:, None] * E).sum(axis=0) / sw
+        b_bar = float(wd @ b) / sw
+        Ec = E - e_bar
+        bc = b - b_bar
+        R = self.R_enu2ecef
+        lam_ecef = (Ec.T * wd) @ Ec
+        eta_ecef = (Ec.T * wd) @ bc
+        lam = R.T @ lam_ecef @ R
+        eta = R.T @ eta_ecef
+        lam = 0.5 * (lam + lam.T)
+        ev, U = np.linalg.eigh(lam)
+        obs_dir = ev > 1e-6 * max(float(ev.max()), 1e-12)
+        if not obs_dir.any():
+            return False
+        v_pred = np.asarray(vel_pred_enu, dtype=float)
+        if self.doppler_lever_comp and rot_nb is not None and omega_b is not None:
+            lever_v = np.asarray(rot_nb) @ np.cross(
+                np.asarray(omega_b), np.asarray(self.lever_arm, dtype=float))
+        else:
+            lever_v = np.zeros(3)
+        mean = np.zeros(3)
+        cov = np.zeros((3, 3))
+        for j in range(3):
+            u = U[:, j]
+            if obs_dir[j]:
+                comp = float(u @ eta) / ev[j] - float(u @ lever_v)
+                if abs(comp - float(u @ v_pred)) > self.dop_lowsat_gate:
+                    return False
+                mean += comp * u
+                cov += np.outer(u, u) * (self.dop_cov_scale ** 2 / ev[j])
+            else:
+                mean += float(u @ v_pred) * u
+                cov += np.outer(u, u) * 1e4
+        cov = 0.5 * (cov + cov.T) + np.eye(3) * self.dop_sig_floor ** 2
+        graph.add(gtsam.PriorFactorVector(
+            self.PV(ep), mean, gtsam.noiseModel.Gaussian.Covariance(cov)))
+        self._doppler_lowsat_count += 1
         return True
 
     def process(self, obs, cs=None, orb=None, bsx=None, obsb=None):
@@ -4714,6 +4822,25 @@ class GtsamRtkTc(GtsamRtk):
             return True
         return False
 
+    def _nlos_online_update(self, obs, rs, sat, iu, pos_pred_ecef):
+        """WP60: this epoch's NLOS set from the PLATEAU mesh, traced from
+        the IMU-predicted antenna position (body position + the lever arm
+        taken as vertical); stored where `_get_nlos_sats` returns it."""
+        _, tow = time2gpst(obs.t)
+        rx = (np.asarray(pos_pred_ecef, dtype=float)
+              + self.R_enu2ecef[:, 2] * float(self.lever_arm[2]))
+        sats = [int(s_) for s_ in sat]
+        if self._los_tracer.inside_mask(rx)[0]:
+            self.nlos_online_inside += 1
+            val = self._nlos_online_prev
+        else:
+            los = self._los_tracer.check_los(
+                rx, np.asarray(rs[np.asarray(iu), :3], dtype=float))
+            val = frozenset(s_ for s_, ok in zip(sats, los) if not ok)
+        self._nlos_online_prev = val
+        self._nlos_cache_key = round(tow, 1)
+        self._nlos_cache_val = val
+
     def _build_dd_factors_arm(self, graph, new_values, obs, obsb, obs_sd,
                                 rs, rsb, sat, el, iu, ir, pos_pred_ecef, ep):
         """Arm-factor analogue of the parent's `_build_dd_factors`
@@ -4735,7 +4862,16 @@ class GtsamRtkTc(GtsamRtk):
 
         # WP13j layer (b): this epoch's NLOS set, only computed when the
         # measurement-weighting layer is actually enabled (0 cost off).
+        if self._los_tracer is not None and self.nlos_meas_mode:
+            self._nlos_online_update(obs, rs, sat, iu, pos_pred_ecef)
         nlos_sats = self._get_nlos_sats(obs) if self.nlos_meas_mode else frozenset()
+        # WP60 NLOS_MEAS_MODE=3: hard-exclude NLOS pairs while at least
+        # NLOS_HYBRID_MIN_LOS satellites stay line-of-sight, else only
+        # inflate them (exclusion alone left too few rows in canyons)
+        nlos_mode = self.nlos_meas_mode
+        if nlos_mode == 3:
+            n_los = sum(1 for s_ in sat if int(s_) not in nlos_sats)
+            nlos_mode = 1 if n_los >= self.nlos_hybrid_min_los else 2
 
         # WP13s literal: tc/'s `_reset_persistently_failing_n` runs at
         # the START of every DD build (buildfactor/factors.py builder
@@ -4769,6 +4905,12 @@ class GtsamRtkTc(GtsamRtk):
                             if int(sat[i]) not in self._one_band_sats]
                     if full:
                         cand = np.asarray(full)
+                if self.nlos_ref_los and nlos_sats:
+                    # WP60: a map-flagged NLOS reference would flag every
+                    # pair of its system; take the highest LOS satellite
+                    los_c = [i for i in cand if int(sat[i]) not in nlos_sats]
+                    if los_c:
+                        cand = np.asarray(los_c)
                 ref_idx = cand[np.argmax(el[cand])]
                 ref_sat = sat[ref_idx]
             lams = _get_wavelengths(self.nav, obs_sd, ref_sat)
@@ -4800,7 +4942,7 @@ class GtsamRtkTc(GtsamRtk):
                     if obs_sd.P[ri, f] == 0 or obs_sd.P[ji, f] == 0:
                         continue
 
-                    if self.nlos_meas_mode == 1 and pair_nlos:
+                    if nlos_mode == 1 and pair_nlos:
                         # hard-exclude: skip this pair/freq entirely (no PR,
                         # no CP, no ambiguity seed) this epoch.
                         continue
@@ -4811,7 +4953,7 @@ class GtsamRtkTc(GtsamRtk):
                     rsb_j = gtsam.Point3(*rsb[ir[ji], :3])
 
                     pr_sigma_mult = (self.nlos_meas_sigma_mult
-                                      if (self.nlos_meas_mode == 2 and pair_nlos) else 1.0)
+                                      if (nlos_mode == 2 and pair_nlos) else 1.0)
                     if pr_sigma_mult != 1.0:
                         self.nlos_meas_pr_affected += 1
 
@@ -5149,7 +5291,7 @@ class GtsamRtkTc(GtsamRtk):
                                     new_amb):
                                 continue
                         cp_sigma_mult = (self.nlos_meas_sigma_mult
-                                          if (self.nlos_meas_mode == 2 and pair_nlos) else 1.0)
+                                          if (nlos_mode == 2 and pair_nlos) else 1.0)
                         if cp_sigma_mult != 1.0:
                             self.nlos_meas_cp_affected += 1
                         cp_sigma_mult *= _lit_mult
@@ -6080,6 +6222,71 @@ class GtsamRtkTc(GtsamRtk):
                 self._fix_streak[key] = 0
             self._tc_literal_release_suspicious_held()
 
+    def _commit_imu_only(self, obs, prev_ep, prev_vel, prev_bias, pim,
+                         pose_pred, vel_pred, gyro_mean, idx_snapshot,
+                         new_idx):
+        """WP59 (P2_IMU_ONLY=1): commit this epoch from the IMU factor,
+        the bias random walk and the NHC/ZUPT motion factors alone (no
+        GNSS rows), so the next epochs start from an NHC-constrained
+        state instead of a pure IMU prediction from the last GNSS epoch.
+        Ambiguity keys are re-stamped so they stay in the lag window.
+        Skips AR, sanity, FDE and the PF step; `_last_imu_only` tells
+        the caller the committed position carries no GNSS information."""
+        ep = self.epoch2
+        key_x, key_v, key_b = self.PX(ep), self.PV(ep), self.PB(ep)
+        graph = gtsam.NonlinearFactorGraph()
+        new_values = gtsam.Values()
+        new_values.insert(key_x, pose_pred)
+        new_values.insert(key_v, vel_pred)
+        new_values.insert(key_b, prev_bias)
+        graph.add(gtsam.CombinedImuFactor(
+            self.PX(prev_ep), self.PV(prev_ep), key_x, key_v,
+            self.PB(prev_ep), key_b, pim))
+        graph.add(gtsam.BetweenFactorConstantBias(
+            self.PB(prev_ep), key_b,
+            gtsam.imuBias.ConstantBias(np.zeros(3), np.zeros(3)),
+            self._bias_between_noise()))
+        if self.bias_prior_mode == 1:
+            graph.addPriorConstantBias(key_b, self.tc_bias_init, self._bias_prior_noise())
+        elif self.bias_prior_mode == 2:
+            graph.addPriorConstantBias(key_b, prev_bias, self._bias_prior_noise())
+        speed_for_nhc = float(np.linalg.norm(prev_vel[:2]))
+        self._add_nhc_factor(
+            graph, ep, speed_for_nhc, gyro_mean, prev_bias.gyroscope())
+        self._zupt_check_and_add(graph, ep, prev_ep,
+                                 self.imu_data[idx_snapshot:new_idx])
+        self.imu_idx = new_idx
+        try:
+            if self.smoother:
+                ts = gtsam.FixedLagSmootherKeyTimestampMap()
+                ts[key_x] = self.epoch_time
+                ts[key_v] = self.epoch_time
+                ts[key_b] = self.epoch_time
+                if not self.per_epoch_n:
+                    for (_s, _f), k in _sorted_amb_items(self.amb_keys):
+                        ts[k] = self.epoch_time
+                self.smoother.update(graph, new_values, ts)
+                estimate = self.smoother.calculateEstimate()
+            else:
+                self.isam.update(graph, new_values)
+                self.isam.update()
+                estimate = self.isam.calculateEstimate()
+            self.current_estimate = estimate
+        except (RuntimeError, IndexError):
+            self.imu_idx = idx_snapshot
+            self.epoch2 += 1
+            self.nav.t = obs.t
+            return
+        self.last_valid_epoch = ep
+        self.last_valid_time = obs.t
+        self._write_back_tc(estimate, key_x, set())
+        self.nav.smode = 5
+        self._last_imu_only = True
+        self.imu_only_count += 1
+        self.nav.t = obs.t
+        self.epoch2 += 1
+        self.epoch_time += 1.0
+
     def _process_phase2(self, obs, obsb):
         """Phase-2 per-epoch update (TASK_M5.md items 2-3): CombinedImuFactor
         chain (preintegrated via tc/'s `build_pim`, reused directly) +
@@ -6117,7 +6324,12 @@ class GtsamRtkTc(GtsamRtk):
         prep = self.prepare_double_difference_measurements(
             obs, obsb, pos_pred=pos_pred_ecef, cs=None, orb=None, bsx=None,
             compute_zdres=False)
+        self._last_imu_only = False
         if prep is None:
+            if self.p2_imu_only:
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
@@ -6217,7 +6429,14 @@ class GtsamRtkTc(GtsamRtk):
             _gdop_bad = not (_gdop_val < 10.0)
             if _gdop_bad:
                 self.gdop_skip_count += 1
-        if ns < 6 or _gdop_bad:
+        # WP59: P2_MIN_NS (default 6) is the fewest common satellites a
+        # phase-2 epoch is committed with; fewer abandons the epoch (the
+        # next committed epoch re-integrates the IMU across it)
+        if ns < self.p2_min_ns or _gdop_bad:
+            if self.p2_imu_only:
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t
@@ -6287,6 +6506,13 @@ class GtsamRtkTc(GtsamRtk):
         if nv < 4:
             if os.environ.get('DEBUG_EXC'):
                 print("DEBUG(TC) nv<4", ep, nv, "amb_keys=", len(self.amb_keys))
+            if self.p2_imu_only:
+                # the DD build may have seeded ambiguity keys: start the
+                # IMU-only graph afresh (its own IMU factor) and leave the
+                # few DD rows out
+                return self._commit_imu_only(
+                    obs, prev_ep, prev_vel, prev_bias, pim, pose_pred,
+                    vel_pred, gyro_mean, idx_snapshot, new_idx)
             self.imu_idx = idx_snapshot
             self.epoch2 += 1
             self.nav.t = obs.t

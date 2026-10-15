@@ -2,6 +2,26 @@
 
 ## Unreleased
 
+- **RB-FGO-PF WP60** (`experiments/rbpf_fgo/`, map-aided, off by default):
+  NLOS satellites from the PLATEAU 3D city model, traced every epoch from the
+  IMU-predicted antenna position (`NLOS_ONLINE=1`, `NLOS_TRI_NPZ`; CPU tracer
+  `plateau_los.py`). NLOS pairs leave the double differences while 6+
+  satellites stay in line of sight, else they are down-weighted
+  (`NLOS_MEAS_MODE=3`); references are line-of-sight satellites
+  (`NLOS_REF_LOS=1`); surfaces within 3 m of the antenna are ignored (bridge
+  decks). Three such runs added to the WP59 ensemble: real-time PPC OFFICIAL
+  92.2 / 96.2 / 94.4 / 81.6 / 62.1 / 91.0%, mean 86.3% (PPC2024 winner:
+  85.6% private), FIX label from the map-free runs at most 0.06% wrong. Their
+  own label is not used (Nagoya 2: 5.84% wrong). D-059.
+- **RB-FGO-PF WP59** (`experiments/rbpf_fgo/rt_ensemble.py`, map-free):
+  real-time ensemble of forward runs (three seeds and a one-band carrier
+  variant, `QC_ANY_BAND_CP_CNR=40`); per epoch a classifier trained on the
+  other five runs picks a member's candidate, unfixed outputs drop by a
+  0.10–0.15 m height bias chosen the same way, and rover gaps get IMU
+  dead-reckoned rows (`wp16_run_rbpf.py --gap-fill`). PPC OFFICIAL 84.7%
+  (single run: 81.6%). Rejected: committing epochs with 4+ satellites
+  (`P2_MIN_NS`), IMU-only epochs (`P2_IMU_ONLY`), Doppler from 2–4
+  satellites (`DOP_LOWSAT_SIG`), medoid / median choice. D-058.
 - **Docs: PPC2024 comparison corrected.** PPC2024 required real-time
   processing with no future observations, and ranked teams on a hidden half
   of the six runs (winner 85.6% private, 78.7% public). The post-processed

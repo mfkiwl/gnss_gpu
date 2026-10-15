@@ -261,6 +261,15 @@ def main() -> int:
     ap.add_argument("--dr-max-s", type=float, default=1e9,
                     help="WP43: longest gap [s] since the last committed epoch "
                          "that --dr-fill bridges")
+    ap.add_argument("--gap-fill", type=int, default=0,
+                    help="WP59: inside a rover observation gap (no synced "
+                         "epoch for more than 1.5 x --gap-dt), output IMU "
+                         "dead-reckoned positions at the rover rate, using "
+                         "only IMU samples up to each output time. Written to "
+                         "the npz gap_* arrays; the per-epoch rows are "
+                         "unchanged")
+    ap.add_argument("--gap-dt", type=float, default=0.2,
+                    help="WP59: rover epoch interval [s] for --gap-fill")
     ap.add_argument("--maxage", type=float, default=30.0)
     ap.add_argument("--nf", type=int, default=3)
     ap.add_argument("--fix-rule", default="",
@@ -377,6 +386,7 @@ def main() -> int:
     trace_windows = _parse_trace_windows(args.trace_tow)
     trace_rows = []
     row_dump, row_epochs = [], []   # WP45 RBPF_DUMP_ROWS diagnostic
+    gap_rows = []                   # WP59 --gap-fill output
 
     mirror = None
     if args.reverse:
@@ -564,6 +574,11 @@ def main() -> int:
         )
         for k in _FCOLS:
             savez_kwargs[k] = np.asarray(cols[k])
+        if args.gap_fill:
+            # WP59: [true tow, anchor tow, xyz (anchored on the last
+            # reported position), IMU delta from the anchor's antenna]
+            savez_kwargs["gap_rows"] = (np.asarray(gap_rows, dtype=float)
+                                        if gap_rows else np.zeros((0, 8)))
         ckpt = _capture_phase2_checkpoint()
         if ckpt is not None:
             savez_kwargs.update(ckpt)
@@ -662,6 +677,7 @@ def main() -> int:
               f"tow={st['tow']:.1f})")
 
     last_rep = None       # WP43 --dr-fill anchor: (ecef, antenna, tow)
+    last_sync_tow = None  # WP59 --gap-fill: previous synced epoch (filter time)
     t_start = time.time()
     n_fix = sum(1 for s in cols["smode"] if int(s) == 4)
     n_flt = sum(1 for s in cols["smode"] if int(s) != 4)
@@ -701,11 +717,44 @@ def main() -> int:
                     and witness._rbpf_ctx is not None):
                 rtk._rbpf_witness_prob = witness_rbpf._extract(
                     witness, witness._rbpf_ctx)
+        if args.gap_fill:
+            # WP59: rover gap -> IMU dead reckoning at the rover rate from
+            # the last committed state, before this epoch is processed
+            _wk, _tw = gn.time2gpst(obs.t)
+            if (last_sync_tow is not None and last_rep is not None
+                    and _tw - last_sync_tow > 1.5 * args.gap_dt):
+                _k = 1
+                while last_sync_tow + _k * args.gap_dt < _tw - 0.5 * args.gap_dt:
+                    _tg = last_sync_tow + _k * args.gap_dt
+                    _k += 1
+                    _got = rtk.predict_antenna_at(gn.gpst2time(_wk, _tg))
+                    if _got is None:
+                        continue
+                    _d = np.asarray(_got[0], dtype=float) - last_rep[1]
+                    if not np.all(np.isfinite(_d)):
+                        continue
+                    gap_rows.append(np.concatenate(
+                        [[_true_tow(_tg), _true_tow(last_rep[2])],
+                         last_rep[0] + _d, _d]))
+            last_sync_tow = _tw
         rtk.process(obs, obsb=obsb)
         updated = rtk.last_valid_epoch != prev_valid
         week, tow = gn.time2gpst(obs.t)
         tow_t = _true_tow(tow)      # true time (== tow unless --reverse)
         dr_ecef = None
+        # WP59 P2_IMU_ONLY: a committed epoch without GNSS rows is reported
+        # like a DR epoch, from the last reported position plus the graph's
+        # (NHC-constrained) antenna motion since then
+        imu_only = updated and bool(getattr(rtk, '_last_imu_only', False))
+        if imu_only and last_rep is not None and tow - last_rep[2] <= args.dr_max_s:
+            try:
+                _ant = rtk._antenna_ecef(rtk.current_estimate.atPose3(
+                    rtk.PX(rtk.last_valid_epoch)))
+                dr_ecef = last_rep[0] + (_ant - last_rep[1])
+                if not np.all(np.isfinite(dr_ecef)):
+                    dr_ecef = None
+            except RuntimeError:
+                dr_ecef = None
         if not updated:
             if not (args.dr_fill and last_rep is not None
                     and tow - last_rep[2] <= args.dr_max_s):
@@ -726,7 +775,8 @@ def main() -> int:
             smode = 4 if out['fix'] else 5
         else:
             ecef, smode = flt_ecef, 5
-        if (updated and args.dr_fill and getattr(rtk, 'phase', 1) == 2
+        if (updated and not imu_only and (args.dr_fill or args.gap_fill)
+                and getattr(rtk, 'phase', 1) == 2
                 and rtk.current_estimate is not None):
             try:
                 last_rep = (np.asarray(ecef, dtype=float).copy(),
@@ -1015,7 +1065,11 @@ def main() -> int:
     print(f"Wrote {pos_path} and {npz_path}")
 
     print(f"Motion factors (phase-2 epochs): Doppler velocity "
-          f"{getattr(rtk, '_doppler_fire_count', 0)}, NHC "
+          f"{getattr(rtk, '_doppler_fire_count', 0)} (low-sat "
+          f"{getattr(rtk, '_doppler_lowsat_count', 0)}), IMU-only epochs "
+          f"{getattr(rtk, 'imu_only_count', 0)}, NLOS-online inside "
+          f"{getattr(rtk, 'nlos_online_inside', 0)}, NLOS PR rows "
+          f"{getattr(rtk, 'nlos_meas_pr_affected', 0)}, NHC "
           f"{getattr(rtk, '_nhc_fire_count', 0)}, ZUPT "
           f"{getattr(rtk, '_zupt_fire_count', 0)}, phase-2 epochs "
           f"{getattr(rtk, 'epoch2', 0)}")
